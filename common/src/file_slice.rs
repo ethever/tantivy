@@ -71,8 +71,7 @@ impl FileHandle for WrapFile {
 
         #[cfg(not(unix))]
         {
-            use std::io::Read;
-            use std::io::Seek;
+            use std::io::{Read, Seek};
             let mut file = self.file.try_clone()?; // Clone the file to read from it separately
                                                    // Seek to the start position in the file
             file.seek(io::SeekFrom::Start(start as u64))?;
@@ -103,8 +102,7 @@ impl FileHandle for &'static [u8] {
 }
 
 impl<B> From<B> for FileSlice
-where
-    B: StableDeref + Deref<Target = [u8]> + 'static + Send + Sync,
+where B: StableDeref + Deref<Target = [u8]> + 'static + Send + Sync
 {
     fn from(bytes: B) -> FileSlice {
         FileSlice::new(Arc::new(OwnedBytes::new(bytes)))
