@@ -257,7 +257,12 @@ fn garbage_collect_works_as_intended() -> crate::Result<()> {
         .reload_policy(ReloadPolicy::Manual)
         .try_into()?;
     assert_eq!(reader.searcher().num_docs(), 8_000);
+
+    #[cfg(feature = "rayon")]
     assert_eq!(reader.searcher().segment_readers().len(), 8);
+
+    #[cfg(not(feature = "rayon"))]
+    assert_eq!(reader.searcher().segment_readers().len(), 1);
 
     writer.wait_merging_threads()?;
 
@@ -267,9 +272,16 @@ fn garbage_collect_works_as_intended() -> crate::Result<()> {
     let searcher = reader.searcher();
     assert_eq!(searcher.segment_readers().len(), 1);
     assert_eq!(searcher.num_docs(), 8_000);
+    #[cfg(feature = "rayon")]
     assert!(
         mem_right_after_merge_finished < mem_right_after_commit,
         "(mem after merge){mem_right_after_merge_finished} is expected < (mem before \
+         merge){mem_right_after_commit}"
+    );
+    #[cfg(not(feature = "rayon"))]
+    assert!(
+        mem_right_after_merge_finished == mem_right_after_commit,
+        "(mem after merge){mem_right_after_merge_finished} is expected == (mem before \
          merge){mem_right_after_commit}"
     );
     Ok(())

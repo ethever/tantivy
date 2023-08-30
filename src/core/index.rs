@@ -314,13 +314,14 @@ impl Index {
         self.executor.as_ref()
     }
 
+    #[cfg(feature = "threads")]
     /// Replace the default single thread search executor pool
     /// by a thread pool with a given number of threads.
     pub fn set_multithread_executor(&mut self, num_threads: usize) -> crate::Result<()> {
         self.executor = Arc::new(Executor::multi_thread(num_threads, "tantivy-search-")?);
         Ok(())
     }
-
+    #[cfg(feature = "threads")]
     /// Replace the default single thread search executor pool
     /// by a thread pool with as many threads as there are CPUs on the system.
     pub fn set_default_multithread_executor(&mut self) -> crate::Result<()> {
@@ -553,8 +554,38 @@ impl Index {
         let memory_arena_in_bytes_per_thread = overall_memory_arena_in_bytes / num_threads;
         IndexWriter::new(
             self,
+            #[cfg(feature = "threads")]
             num_threads,
             memory_arena_in_bytes_per_thread,
+            directory_lock,
+        )
+    }
+
+    #[cfg(feature = "icp")]
+    /// TODO: a better name here.
+    /// The icp system only support one thread per canister.
+    pub fn writer_icp(&self, overall_memory_arena_in_bytes: usize) -> crate::Result<IndexWriter> {
+        let directory_lock = self
+            .directory
+            .acquire_lock(&INDEX_WRITER_LOCK)
+            .map_err(|err| {
+                TantivyError::LockFailure(
+                    err,
+                    Some(
+                        "Failed to acquire index lock. If you are using a regular directory, this \
+                         means there is already an `IndexWriter` working on this `Directory`, in \
+                         this process or in a different process."
+                            .to_string(),
+                    ),
+                )
+            })?;
+
+        // TODO: we need a new IndexWriter api for the [icp] feature.
+        IndexWriter::new(
+            self,
+            #[cfg(feature = "threads")]
+            1,
+            overall_memory_arena_in_bytes,
             directory_lock,
         )
     }

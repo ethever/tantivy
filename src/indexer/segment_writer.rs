@@ -910,6 +910,7 @@ mod tests {
         assert_eq!(positions, &[4]); //< as opposed to 3 if we had a position length of 1.
     }
 
+    #[cfg(feature = "mmap")]
     #[test]
     fn test_show_error_when_tokenizer_not_registered() {
         let text_field_indexing = TextFieldIndexing::default()

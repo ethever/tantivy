@@ -85,8 +85,12 @@ impl WarmingStateInner {
         self.start_gc_thread_maybe(this)?;
         self.warmed_generation_ids
             .insert(searcher.generation().generation_id());
-        warming_executor(self.num_warming_threads.min(warmers.len()))?
-            .map(|warmer| warmer.warm(searcher), warmers.into_iter())?;
+
+        warming_executor(
+            #[cfg(feature = "threads")]
+            self.num_warming_threads.min(warmers.len()),
+        )?
+        .map(|warmer| warmer.warm(searcher), warmers.into_iter())?;
         Ok(())
     }
 
@@ -162,6 +166,12 @@ impl WarmingStateInner {
     }
 }
 
+#[cfg(not(feature = "threads"))]
+fn warming_executor() -> crate::Result<Executor> {
+    Ok(Executor::single_thread())
+}
+
+#[cfg(feature = "threads")]
 fn warming_executor(num_threads: usize) -> crate::Result<Executor> {
     if num_threads <= 1 {
         Ok(Executor::single_thread())

@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
 
+#[cfg(feature = "threads")]
 use rayon::{ThreadPool, ThreadPoolBuilder};
 
 use super::segment_manager::SegmentManager;
@@ -26,6 +27,7 @@ use crate::indexer::{
 };
 use crate::{FutureResult, Opstamp};
 
+#[cfg(feature = "threads")]
 const NUM_MERGE_THREADS: usize = 4;
 
 /// Save the index meta file.
@@ -265,7 +267,9 @@ pub(crate) struct InnerSegmentUpdater {
     // This should be up to date as all update happen through
     // the unique active `SegmentUpdater`.
     active_index_meta: RwLock<Arc<IndexMeta>>,
+    #[cfg(feature = "threads")]
     pool: ThreadPool,
+    #[cfg(feature = "threads")]
     merge_thread_pool: ThreadPool,
 
     index: Index,
@@ -284,6 +288,7 @@ impl SegmentUpdater {
     ) -> crate::Result<SegmentUpdater> {
         let segments = index.searchable_segment_metas()?;
         let segment_manager = SegmentManager::from_segments(segments, delete_cursor);
+        #[cfg(feature = "threads")]
         let pool = ThreadPoolBuilder::new()
             .thread_name(|_| "segment_updater".to_string())
             .num_threads(1)
@@ -293,6 +298,7 @@ impl SegmentUpdater {
                     "Failed to spawn segment updater thread".to_string(),
                 )
             })?;
+        #[cfg(feature = "threads")]
         let merge_thread_pool = ThreadPoolBuilder::new()
             .thread_name(|i| format!("merge_thread_{i}"))
             .num_threads(NUM_MERGE_THREADS)
@@ -305,7 +311,9 @@ impl SegmentUpdater {
         let index_meta = index.load_metas()?;
         Ok(SegmentUpdater(Arc::new(InnerSegmentUpdater {
             active_index_meta: RwLock::new(Arc::new(index_meta)),
+            #[cfg(feature = "threads")]
             pool,
+            #[cfg(feature = "threads")]
             merge_thread_pool,
             index,
             segment_manager,
@@ -325,6 +333,24 @@ impl SegmentUpdater {
         *self.merge_policy.write().unwrap() = arc_merge_policy;
     }
 
+    #[cfg(not(feature = "threads"))]
+    fn do_task<T: 'static + Send, F: FnOnce() -> crate::Result<T>>(
+        &self,
+        task: F,
+    ) -> FutureResult<T> {
+        if !self.is_alive() {
+            return crate::TantivyError::SystemError("Segment updater killed".to_string()).into();
+        }
+        let (scheduled_result, sender) = FutureResult::create(
+            "A segment_updater future did not succeed. This should never happen.",
+        );
+
+        let task_result = task();
+        let _ = sender.send(task_result);
+        scheduled_result
+    }
+
+    #[cfg(feature = "threads")]
     fn schedule_task<T: 'static + Send, F: FnOnce() -> crate::Result<T> + 'static + Send>(
         &self,
         task: F,
@@ -335,13 +361,30 @@ impl SegmentUpdater {
         let (scheduled_result, sender) = FutureResult::create(
             "A segment_updater future did not succeed. This should never happen.",
         );
+
+        #[cfg(feature = "threads")]
         self.pool.spawn(|| {
             let task_result = task();
             let _ = sender.send(task_result);
         });
+        #[cfg(not(feature = "threads"))]
+        {
+            let task_result = task();
+            let _ = sender.send(task_result);
+        }
         scheduled_result
     }
 
+    #[cfg(not(feature = "threads"))]
+    pub fn add_segment(&self, segment_entry: SegmentEntry) -> FutureResult<()> {
+        self.do_task(|| {
+            self.segment_manager.add_segment(segment_entry);
+            self.consider_merge_options();
+            Ok(())
+        })
+    }
+
+    #[cfg(feature = "threads")]
     pub fn schedule_add_segment(&self, segment_entry: SegmentEntry) -> FutureResult<()> {
         let segment_updater = self.clone();
         self.schedule_task(move || {
@@ -415,9 +458,15 @@ impl SegmentUpdater {
         Ok(())
     }
 
+    #[cfg(feature = "threads")]
     pub fn schedule_garbage_collect(&self) -> FutureResult<GarbageCollectionResult> {
         let self_clone = self.clone();
         self.schedule_task(move || garbage_collect_files(self_clone))
+    }
+
+    #[cfg(not(feature = "threads"))]
+    pub fn garbage_collect(&self) -> FutureResult<GarbageCollectionResult> {
+        self.do_task(|| garbage_collect_files(self.clone()))
     }
 
     /// List the files that are useful to the index.
@@ -435,6 +484,7 @@ impl SegmentUpdater {
         files
     }
 
+    #[cfg(feature = "threads")]
     pub(crate) fn schedule_commit(
         &self,
         opstamp: Opstamp,
@@ -447,6 +497,22 @@ impl SegmentUpdater {
             segment_updater.save_metas(opstamp, payload)?;
             let _ = garbage_collect_files(segment_updater.clone());
             segment_updater.consider_merge_options();
+            Ok(opstamp)
+        })
+    }
+
+    #[cfg(not(feature = "threads"))]
+    pub(crate) fn commit(
+        &self,
+        opstamp: Opstamp,
+        payload: Option<String>,
+    ) -> FutureResult<Opstamp> {
+        self.do_task(|| {
+            let segment_entries = self.purge_deletes(opstamp)?;
+            self.segment_manager.commit(segment_entries);
+            self.save_metas(opstamp, payload)?;
+            let _ = garbage_collect_files(self.clone());
+            self.consider_merge_options();
             Ok(opstamp)
         })
     }
@@ -464,23 +530,83 @@ impl SegmentUpdater {
         MergeOperation::new(&self.merge_operations, commit_opstamp, segment_ids.to_vec())
     }
 
-    // Starts a merge operation. This function will block until the merge operation is effectively
-    // started. Note that it does not wait for the merge to terminate.
-    // The calling thread should not be block for a long time, as this only involve waiting for the
-    // `SegmentUpdater` queue which in turns only contains lightweight operations.
-    //
-    // The merge itself happens on a different thread.
-    //
-    // When successful, this function returns a `Future` for a `Result<SegmentMeta>` that represents
-    // the actual outcome of the merge operation.
-    //
-    // It returns an error if for some reason the merge operation could not be started.
-    //
-    // At this point an error is not necessarily the sign of a malfunction.
-    // (e.g. A rollback could have happened, between the instant when the merge operation was
-    // suggested and the moment when it ended up being executed.)
-    //
-    // `segment_ids` is required to be non-empty.
+    #[cfg(not(feature = "threads"))]
+    pub fn start_merge(
+        &self,
+        merge_operation: MergeOperation,
+    ) -> FutureResult<Option<SegmentMeta>> {
+        assert!(
+            !merge_operation.segment_ids().is_empty(),
+            "Segment_ids cannot be empty."
+        );
+
+        let segment_updater = self.clone();
+
+        let segment_entries: Vec<SegmentEntry> = match self
+            .segment_manager
+            .start_merge(merge_operation.segment_ids())
+        {
+            Ok(segment_entries) => segment_entries,
+            Err(err) => {
+                warn!(
+                    "Starting the merge failed for the following reason. This is not fatal. {}",
+                    err
+                );
+                return err.into();
+            }
+        };
+        info!("Starting merge - {:?}", merge_operation.segment_ids());
+
+        let (scheduled_result, merging_future_send) =
+            FutureResult::create("Merge operation failed.");
+
+        // The fact that `merge_operation` is moved here is important.
+        // Its lifetime is used to track how many merging thread are
+        // currently running, as well as which segment is currently in merge and
+        // therefore should not be candidate for another merge.
+        match merge(
+            &segment_updater.index,
+            segment_entries,
+            merge_operation.target_opstamp(),
+        ) {
+            Ok(after_merge_segment_entry) => {
+                let res = segment_updater.end_merge(merge_operation, after_merge_segment_entry);
+                let _send_result = merging_future_send.send(res);
+            }
+            Err(merge_error) => {
+                warn!(
+                    "Merge of {:?} was cancelled: {:?}",
+                    merge_operation.segment_ids().to_vec(),
+                    merge_error
+                );
+
+                if cfg!(test) {
+                    panic!("{merge_error:?}");
+                }
+                let _send_result = merging_future_send.send(Err(merge_error));
+            }
+        }
+
+        scheduled_result
+    }
+    #[cfg(feature = "threads")]
+    /// Starts a merge operation. This function will block until the merge operation is effectively
+    /// started. Note that it does not wait for the merge to terminate.
+    /// The calling thread should not be block for a long time, as this only involve waiting for the
+    /// `SegmentUpdater` queue which in turns only contains lightweight operations.
+    ///
+    /// The merge itself happens on a different thread.
+    ///
+    /// When successful, this function returns a `Future` for a `Result<SegmentMeta>` that
+    /// represents the actual outcome of the merge operation.
+    ///
+    /// It returns an error if for some reason the merge operation could not be started.
+    ///
+    /// At this point an error is not necessarily the sign of a malfunction.
+    /// (e.g. A rollback could have happened, between the instant when the merge operation was
+    /// suggested and the moment when it ended up being executed.)
+    ///
+    /// `segment_ids` is required to be non-empty.
     pub fn start_merge(
         &self,
         merge_operation: MergeOperation,
@@ -579,6 +705,73 @@ impl SegmentUpdater {
         }
     }
 
+    #[cfg(not(feature = "threads"))]
+    /// Queues a `end_merge` in the segment updater and blocks utils it is successfully processed.
+    fn end_merge(
+        &self,
+        merge_operation: MergeOperation,
+        mut after_merge_segment_entry: Option<SegmentEntry>,
+    ) -> crate::Result<Option<SegmentMeta>> {
+        let after_merge_segment_meta = after_merge_segment_entry.as_ref().map(|s| s.meta().clone());
+
+        self.do_task(|| {
+            info!(
+                "End merge block {:?}",
+                after_merge_segment_entry.as_ref().map(|entry| entry.meta())
+            );
+
+            {
+                if let Some(after_merge_segment_entry) = after_merge_segment_entry.as_mut() {
+                    let mut delete_cursor = after_merge_segment_entry.delete_cursor().clone();
+                    if let Some(delete_operation) = delete_cursor.get() {
+                        let committed_opstamp = self.load_meta().opstamp;
+                        if delete_operation.opstamp < committed_opstamp {
+                            let index = &self.index;
+                            let segment = index.segment(after_merge_segment_entry.meta().clone());
+                            if let Err(advance_deletes_err) = advance_deletes(
+                                segment,
+                                after_merge_segment_entry,
+                                committed_opstamp,
+                            ) {
+                                error!(
+                                    "Merge of {:?} was cancelled (advancing deletes failed): {:?}",
+                                    merge_operation.segment_ids(),
+                                    advance_deletes_err
+                                );
+
+                                assert!(!cfg!(test), "Merge failed.");
+
+                                // ... cancel merge
+                                // `merge_operations` are tracked. As it is dropped, the
+                                // segment_ids will be available again for merge.
+                                return Err(advance_deletes_err);
+                            }
+                        }
+                    }
+                }
+
+                let previous_metas = self.load_meta();
+                let segment_status = self
+                    .segment_manager
+                    .end_merge(merge_operation.segment_ids(), after_merge_segment_entry)?;
+
+                if segment_status == SegmentsStatus::Committed {
+                    self.save_metas(previous_metas.opstamp, previous_metas.payload.clone())?;
+                }
+                // TODO: why?
+                // self.consider_merge_options();
+            } // We drop all possible handle to a now useless `SegmentMeta`.
+
+            let _ = garbage_collect_files(self.clone());
+
+            Ok(())
+        })
+        .wait()?;
+
+        Ok(after_merge_segment_meta)
+    }
+
+    #[cfg(feature = "threads")]
     /// Queues a `end_merge` in the segment updater and blocks until it is successfully processed.
     fn end_merge(
         &self,

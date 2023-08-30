@@ -26,6 +26,7 @@ pub enum ReloadPolicy {
     /// No change is reflected automatically. You are required to call [`IndexReader::reload()`]
     /// manually.
     Manual,
+    // #[cfg(feature = "threads")]
     /// The index is reloaded within milliseconds after a new commit is available.
     /// This is made possible by watching changes in the `meta.json` file.
     OnCommit, // TODO add NEAR_REAL_TIME(target_ms)
@@ -83,6 +84,7 @@ impl IndexReaderBuilder {
                 // No need to set anything...
                 None
             }
+            // #[cfg(feature = "threads")]
             ReloadPolicy::OnCommit => {
                 let inner_reader_arc_clone = inner_reader_arc.clone();
                 let callback = move || {
@@ -195,6 +197,8 @@ impl InnerIndexReader {
     /// as we are opening our index.
     fn open_segment_readers(index: &Index) -> crate::Result<Vec<SegmentReader>> {
         // Prevents segment files from getting deleted while we are in the process of opening them
+        #[cfg(feature = "threads")]
+        // TODO: fix here
         let _meta_lock = index.directory().acquire_lock(&META_LOCK)?;
         let searchable_segments = index.searchable_segments()?;
         let segment_readers = searchable_segments

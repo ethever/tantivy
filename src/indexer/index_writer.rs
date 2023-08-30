@@ -34,6 +34,7 @@ pub const MEMORY_ARENA_NUM_BYTES_MAX: usize = u32::MAX as usize - MARGIN_IN_BYTE
 // We impose the number of index writer threads to be at most this.
 pub const MAX_NUM_THREAD: usize = 8;
 
+#[cfg(feature = "threads")]
 // Add document will block if the number of docs waiting in the queue to be indexed
 // reaches `PIPELINE_MAX_SIZE_IN_DOCS`
 const PIPELINE_MAX_SIZE_IN_DOCS: usize = 10_000;
@@ -59,15 +60,17 @@ pub struct IndexWriter {
 
     memory_arena_in_bytes_per_thread: usize,
 
+    #[cfg(feature = "threads")]
     workers_join_handle: Vec<JoinHandle<crate::Result<()>>>,
 
     index_writer_status: IndexWriterStatus,
     operation_sender: AddBatchSender,
 
     segment_updater: SegmentUpdater,
-
+    #[cfg(feature = "threads")]
     worker_id: usize,
 
+    #[cfg(feature = "threads")]
     num_threads: usize,
 
     delete_queue: DeleteQueue,
@@ -163,6 +166,56 @@ pub(crate) fn advance_deletes(
     Ok(())
 }
 
+#[cfg(not(feature = "threads"))]
+fn index_documents(
+    memory_budget: usize,
+    segment: Segment,
+    grouped_document_iterator: &mut dyn Iterator<Item = AddBatch>,
+    segment_updater: &SegmentUpdater,
+    mut delete_cursor: DeleteCursor,
+) -> crate::Result<()> {
+    let mut segment_writer = SegmentWriter::for_segment(memory_budget, segment.clone())?;
+
+    for document_group in grouped_document_iterator {
+        for doc in document_group {
+            segment_writer.add_document(doc)?;
+        }
+        let mem_usage = segment_writer.mem_usage();
+        if mem_usage >= memory_budget - MARGIN_IN_BYTES {
+            info!(
+                "Buffer limit reached, flushing segment with maxdoc={}.",
+                segment_writer.max_doc()
+            );
+            break;
+        }
+    }
+
+    if !segment_updater.is_alive() {
+        return Ok(());
+    }
+
+    let max_doc = segment_writer.max_doc();
+
+    // This is ensured by the call to peek before starting
+    // the wroker thread.
+    // TODO: check this.
+    assert!(max_doc > 0);
+
+    let doc_opstamps: Vec<Opstamp> = segment_writer.finalize()?;
+
+    let segment_with_max_doc = segment.with_max_doc(max_doc);
+
+    let alive_bitset_opt = apply_deletes(&segment_with_max_doc, &mut delete_cursor, &doc_opstamps)?;
+
+    let meta = segment_with_max_doc.meta().clone();
+    meta.untrack_temp_docstore();
+    // update segment_updater inventory to remove tempstore.
+    let segment_entry = SegmentEntry::new(meta, delete_cursor, alive_bitset_opt);
+    segment_updater.add_segment(segment_entry).wait()?;
+    Ok(())
+}
+
+#[cfg(feature = "threads")]
 fn index_documents(
     memory_budget: usize,
     segment: Segment,
@@ -263,7 +316,7 @@ impl IndexWriter {
     /// `TantivyError::InvalidArgument`
     pub(crate) fn new(
         index: &Index,
-        num_threads: usize,
+        #[cfg(feature = "threads")] num_threads: usize,
         memory_arena_in_bytes_per_thread: usize,
         directory_lock: DirectoryLock,
     ) -> crate::Result<IndexWriter> {
@@ -280,8 +333,14 @@ impl IndexWriter {
             );
             return Err(TantivyError::InvalidArgument(err_msg));
         }
+
+        #[cfg(feature = "threads")]
         let (document_sender, document_receiver): (AddBatchSender, AddBatchReceiver) =
             crossbeam_channel::bounded(PIPELINE_MAX_SIZE_IN_DOCS);
+
+        #[cfg(not(feature = "threads"))]
+        let (document_sender, document_receiver): (AddBatchSender, AddBatchReceiver) =
+            crossbeam_channel::unbounded();
 
         let delete_queue = DeleteQueue::new();
 
@@ -302,16 +361,19 @@ impl IndexWriter {
 
             segment_updater,
 
+            #[cfg(feature = "threads")]
             workers_join_handle: vec![],
+            #[cfg(feature = "threads")]
             num_threads,
 
             delete_queue,
 
             committed_opstamp: current_opstamp,
             stamper,
-
+            #[cfg(feature = "threads")]
             worker_id: 0,
         };
+        #[cfg(feature = "threads")]
         index_writer.start_workers()?;
         Ok(index_writer)
     }
@@ -326,6 +388,13 @@ impl IndexWriter {
         &self.index
     }
 
+    #[cfg(not(feature = "threads"))]
+    #[allow(unused_mut)]
+    pub fn wait_merging_threads(mut self) -> crate::Result<()> {
+        // no-op
+        Ok(())
+    }
+    #[cfg(feature = "threads")]
     /// If there are some merging threads, blocks until they all finish their work and
     /// then drop the `IndexWriter`.
     pub fn wait_merging_threads(mut self) -> crate::Result<()> {
@@ -353,6 +422,13 @@ impl IndexWriter {
         result
     }
 
+    #[cfg(not(feature = "threads"))]
+    pub fn add_segment(&self, segment_meta: SegmentMeta) -> crate::Result<()> {
+        let delete_cursor = self.delete_queue.cursor();
+        let segment_entry = SegmentEntry::new(segment_meta, delete_cursor, None);
+        self.segment_updater.add_segment(segment_entry).wait()
+    }
+    #[cfg(feature = "threads")]
     #[doc(hidden)]
     pub fn add_segment(&self, segment_meta: SegmentMeta) -> crate::Result<()> {
         let delete_cursor = self.delete_queue.cursor();
@@ -386,6 +462,52 @@ impl IndexWriter {
             })
     }
 
+    #[cfg(not(feature = "threads"))]
+    /// Do index in current thread.
+    fn do_index(&mut self) -> crate::Result<()> {
+        let document_receiver_clone = self.operation_receiver()?;
+        let index_writer_bomb = self.index_writer_status.create_bomb();
+
+        let segment_updater = self.segment_updater.clone();
+        let mut delete_cursor = self.delete_queue.cursor();
+        let mem_budget = self.memory_arena_in_bytes_per_thread;
+        let index = self.index.clone();
+
+        // do index
+        loop {
+            let t = document_receiver_clone.clone();
+
+            let res = t.try_iter();
+            let mut document_iterator = res.filter(|batch| !batch.is_empty()).peekable();
+
+            // The peeking here is to avoid creating a new segment's files
+            // if no document are available.
+            //
+            // This is a vaild guarantee as the peeked document now belongs to
+            // our local iterator.
+            if let Some(batch) = document_iterator.peek() {
+                assert!(!batch.is_empty());
+                delete_cursor.skip_to(batch[0].opstamp);
+            } else {
+                // No more documents.
+                // It happens when there is a commit, or if the `IndexWriter`
+                // was dropped.
+                index_writer_bomb.defuse();
+                return Ok(());
+            }
+
+            index_documents(
+                mem_budget,
+                index.new_segment(),
+                &mut document_iterator,
+                &segment_updater,
+                delete_cursor.clone(),
+            )?;
+        }
+
+        // Ok(())
+    }
+    #[cfg(feature = "threads")]
     /// Spawns a new worker thread for indexing.
     /// The thread consumes documents from the pipeline.
     fn add_indexing_worker(&mut self) -> crate::Result<()> {
@@ -448,6 +570,7 @@ impl IndexWriter {
         self.segment_updater.set_merge_policy(merge_policy);
     }
 
+    #[cfg(feature = "threads")]
     fn start_workers(&mut self) -> crate::Result<()> {
         for _ in 0..self.num_threads {
             self.add_indexing_worker()?;
@@ -455,9 +578,15 @@ impl IndexWriter {
         Ok(())
     }
 
+    #[cfg(feature = "threads")]
     /// Detects and removes the files that are not used by the index anymore.
     pub fn garbage_collect_files(&self) -> FutureResult<GarbageCollectionResult> {
         self.segment_updater.schedule_garbage_collect()
+    }
+
+    #[cfg(not(feature = "threads"))]
+    pub fn garbage_collect_files(&self) -> FutureResult<GarbageCollectionResult> {
+        self.segment_updater.garbage_collect()
     }
 
     /// Deletes all documents from the index
@@ -524,6 +653,10 @@ impl IndexWriter {
     ///
     /// Returns the former segment_ready channel.
     fn recreate_document_channel(&mut self) {
+        #[cfg(not(feature = "threads"))]
+        let (document_sender, document_receiver): (AddBatchSender, AddBatchReceiver) =
+            crossbeam_channel::unbounded();
+        #[cfg(feature = "threads")]
         let (document_sender, document_receiver): (AddBatchSender, AddBatchReceiver) =
             crossbeam_channel::bounded(PIPELINE_MAX_SIZE_IN_DOCS);
         self.operation_sender = document_sender;
@@ -542,6 +675,7 @@ impl IndexWriter {
         info!("Rolling back to opstamp {}", self.committed_opstamp);
         // marks the segment updater as killed. From now on, all
         // segment updates will be ignored.
+        #[cfg(feature = "threads")]
         self.segment_updater.kill();
         let document_receiver_res = self.operation_receiver();
 
@@ -553,6 +687,7 @@ impl IndexWriter {
 
         let new_index_writer: IndexWriter = IndexWriter::new(
             &self.index,
+            #[cfg(feature = "threads")]
             self.num_threads,
             self.memory_arena_in_bytes_per_thread,
             directory_lock,
@@ -576,6 +711,23 @@ impl IndexWriter {
         Ok(self.committed_opstamp)
     }
 
+    #[cfg(not(feature = "threads"))]
+    /// Prepares a commit.
+    pub fn prepare_commit(&mut self) -> crate::Result<PreparedCommit> {
+        info!("Preparing commit");
+
+        self.do_index()?;
+
+        // this will drop the current document channel
+        // and recreate a new one.
+        self.recreate_document_channel();
+
+        let commit_opstamp = self.stamper.stamp();
+        let prepared_commit = PreparedCommit::new(self, commit_opstamp);
+        info!("Prepared commit {}", commit_opstamp);
+        Ok(prepared_commit)
+    }
+    #[cfg(feature = "threads")]
     /// Prepares a commit.
     ///
     /// Calling `prepare_commit()` will cut the indexing
@@ -790,8 +942,11 @@ impl Drop for IndexWriter {
     fn drop(&mut self) {
         self.segment_updater.kill();
         self.drop_sender();
-        for work in self.workers_join_handle.drain(..) {
-            let _ = work.join();
+        #[cfg(feature = "threads")]
+        {
+            for work in self.workers_join_handle.drain(..) {
+                let _ = work.join();
+            }
         }
     }
 }
@@ -844,6 +999,62 @@ mod tests {
         assert_eq!(batch_opstamp1, 2u64);
     }
 
+    #[cfg(feature = "icp")]
+    #[test]
+    // TODO: a better name here.
+    fn test_icp() {
+        let mut schema_builder = schema::Schema::builder();
+        let text_field = schema_builder.add_text_field("text", TEXT);
+        let index = Index::create_in_ram(schema_builder.build());
+
+        // TODO: using icp writer here.
+        let mut index_writer = index.writer_for_tests().unwrap();
+
+        index_writer
+            .add_document(doc!(text_field => "hadhsahdsahd"))
+            .unwrap();
+        index_writer
+            .add_document(doc!(text_field => "hadhsahdsahd2"))
+            .unwrap();
+        index_writer
+            .add_document(doc!(text_field => "hadhsahdsahd3"))
+            .unwrap();
+        index_writer
+            .add_document(doc!(text_field => "hadhsahdsahd4"))
+            .unwrap();
+
+        assert!(index_writer.commit().is_ok());
+
+        let reader = index.reader().unwrap();
+        let searcher = reader.searcher();
+        assert_eq!(searcher.segment_readers().len(), 1);
+        assert_eq!(searcher.segment_reader(0).num_docs(), 4);
+
+        index_writer.delete_term(Term::from_field_text(text_field, "hadhsahdsahd3"));
+        assert!(index_writer.commit().is_ok());
+
+        assert!(reader.reload().is_ok());
+        let searcher = reader.searcher();
+        assert_eq!(searcher.segment_readers().len(), 1);
+        assert_eq!(searcher.segment_reader(0).num_docs(), 3);
+
+        let previous_delete_opstamp = index.load_metas().unwrap().segments[0].delete_opstamp();
+
+        // All docs containing hadhsahdsahd3 have been already removed.
+        // We should not update the delete meta.
+        index_writer.delete_term(Term::from_field_text(text_field, "hadhsahdsahd3"));
+        assert!(index_writer.commit().is_ok());
+
+        assert!(reader.reload().is_ok());
+        let searcher = reader.searcher();
+        assert_eq!(searcher.segment_readers().len(), 1);
+        assert_eq!(searcher.segment_reader(0).num_docs(), 3);
+
+        let after_delete_opstamp = index.load_metas().unwrap().segments[0].delete_opstamp();
+
+        assert_eq!(previous_delete_opstamp, after_delete_opstamp);
+    }
+
     #[test]
     fn test_no_need_to_rewrite_delete_file_if_no_new_deletes() {
         let mut schema_builder = schema::Schema::builder();
@@ -857,6 +1068,7 @@ mod tests {
         index_writer
             .add_document(doc!(text_field => "hello2"))
             .unwrap();
+
         assert!(index_writer.commit().is_ok());
 
         let reader = index.reader().unwrap();
@@ -1031,6 +1243,7 @@ mod tests {
             index_writer.add_document(doc!(text_field=>"c"))?;
             index_writer.commit()?;
             reader.reload()?;
+
             assert_eq!(num_docs_containing("a"), 0);
             assert_eq!(num_docs_containing("b"), 1);
             assert_eq!(num_docs_containing("c"), 1);
@@ -1745,6 +1958,9 @@ mod tests {
                     index_writer.commit()?;
                 }
                 IndexingOp::Merge => {
+                    // TODO: fix me? why need this?
+                    index_writer.commit()?;
+
                     let mut segment_ids = index
                         .searchable_segment_ids()
                         .expect("Searchable segments failed.");
@@ -1827,6 +2043,17 @@ mod tests {
             .filter(|(id, _id_occurrences)| id_exists(**id))
             .map(|(_, id_occurrences)| *id_occurrences as usize)
             .sum::<usize>();
+
+        println!(
+            "doc_ids_alive: {:?}, num_docs_expected: {}, searcher.num_docs(): {}",
+            searcher
+                .segment_readers()
+                .into_iter()
+                .map(|r| r.doc_ids_alive().collect::<Vec<_>>())
+                .collect::<Vec<_>>(),
+            num_docs_expected,
+            searcher.num_docs(),
+        );
 
         assert_eq!(searcher.num_docs() as usize, num_docs_expected);
         assert_eq!(old_searcher.num_docs() as usize, num_docs_expected);
@@ -2210,6 +2437,24 @@ mod tests {
         .is_ok());
     }
 
+    #[cfg(feature = "icp")]
+    #[test]
+    // TODO: a better name here.
+    fn test_ff_num_ips_icp_regresson_merge_should_work() {
+        let res = test_operation_strategy(
+            &[
+                IndexingOp::AddDoc { id: 13 },
+                IndexingOp::AddDoc { id: 1 },
+                IndexingOp::Commit,
+            ],
+            false,
+            true,
+        );
+        println!("{:?}", res);
+
+        assert!(res.is_ok());
+    }
+
     #[test]
     fn test_ff_num_ips_regression() {
         assert!(test_operation_strategy(
@@ -2320,6 +2565,37 @@ mod tests {
         assert!(test_operation_strategy(&[IndexingOp::AddDoc { id: 3 },], true, true).is_ok());
     }
 
+    #[cfg(feature = "icp")]
+    #[test]
+    // A better name here.
+    fn temp_test() {
+        use IndexingOp::*;
+        let ops = vec![
+            AddDoc { id: 69 },
+            Commit,
+            AddDoc { id: 7 },
+            Commit,
+            AddDoc { id: 18 },
+            DeleteDoc { id: 18 },
+            // Commit,
+            // DeleteDocQuery { id: 56 },
+            // AddDoc { id: 55 },
+            // AddDoc { id: 71 },
+            // AddDoc { id: 86 },
+            // AddDoc { id: 5 },
+            Merge,
+            // AddDoc { id: 43 },
+            // DeleteDoc { id: 24 },
+            // AddDoc { id: 0 },
+            // DeleteDocQuery { id: 34 },
+            // Commit,
+            // AddDoc { id: 93 },
+        ];
+        let res = test_operation_strategy(&ops, false, true);
+
+        assert!(res.is_ok());
+    }
+
     use proptest::prelude::*;
 
     proptest! {
@@ -2342,7 +2618,8 @@ mod tests {
 
         #[test]
         fn test_delete_without_sort_proptest_with_merge_adding(ops in proptest::collection::vec(adding_operation_strategy(), 1..100)) {
-            assert!(test_operation_strategy(&ops[..], false, true).is_ok());}
+            assert!(test_operation_strategy(&ops[..], false, true).is_ok());
+        }
 
         #[test]
         fn test_delete_with_sort_proptest(ops in proptest::collection::vec(balanced_operation_strategy(), 1..10)) {

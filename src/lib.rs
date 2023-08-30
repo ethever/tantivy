@@ -340,6 +340,7 @@ pub mod tests {
     use crate::collector::tests::TEST_COLLECTOR_WITH_SCORE;
     use crate::core::SegmentReader;
     use crate::docset::{DocSet, TERMINATED};
+    #[cfg(feature = "mmap")]
     use crate::merge_policy::NoMergePolicy;
     use crate::query::BooleanQuery;
     use crate::schema::*;
@@ -1117,6 +1118,7 @@ pub mod tests {
         Ok(())
     }
 
+    #[cfg(feature = "mmap")]
     #[test]
     fn test_validate_checksum() -> crate::Result<()> {
         let index_path = tempfile::tempdir().expect("dir");

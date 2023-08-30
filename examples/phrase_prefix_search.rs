@@ -2,9 +2,11 @@ use tantivy::collector::TopDocs;
 use tantivy::query::QueryParser;
 use tantivy::schema::*;
 use tantivy::{doc, Index, ReloadPolicy, Result};
+#[cfg(feature = "mmap")]
 use tempfile::TempDir;
 
 fn main() -> Result<()> {
+    #[cfg(feature = "mmap")]
     let index_path = TempDir::new()?;
 
     let mut schema_builder = Schema::builder();
@@ -14,9 +16,10 @@ fn main() -> Result<()> {
 
     let title = schema.get_field("title").unwrap();
     let body = schema.get_field("body").unwrap();
-
+    #[cfg(feature = "mmap")]
     let index = Index::create_in_dir(&index_path, schema)?;
-
+    #[cfg(not(feature = "mmap"))]
+    let index = Index::create_in_ram(schema.clone());
     let mut index_writer = index.writer(50_000_000)?;
 
     index_writer.add_document(doc!(

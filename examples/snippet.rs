@@ -11,11 +11,13 @@ use tantivy::collector::TopDocs;
 use tantivy::query::QueryParser;
 use tantivy::schema::*;
 use tantivy::{doc, Index, Snippet, SnippetGenerator};
+#[cfg(feature = "mmap")]
 use tempfile::TempDir;
 
 fn main() -> tantivy::Result<()> {
     // Let's create a temporary directory for the
     // sake of this example
+    #[cfg(feature = "mmap")]
     let index_path = TempDir::new()?;
 
     // # Defining the schema
@@ -24,8 +26,11 @@ fn main() -> tantivy::Result<()> {
     let body = schema_builder.add_text_field("body", TEXT | STORED);
     let schema = schema_builder.build();
 
+    #[cfg(feature = "mmap")]
     // # Indexing documents
     let index = Index::create_in_dir(&index_path, schema)?;
+    #[cfg(not(feature = "mmap"))]
+    let index = Index::create_in_ram(schema);
 
     let mut index_writer = index.writer(50_000_000)?;
 

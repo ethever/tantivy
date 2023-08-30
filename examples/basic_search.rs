@@ -16,11 +16,13 @@ use tantivy::collector::TopDocs;
 use tantivy::query::QueryParser;
 use tantivy::schema::*;
 use tantivy::{doc, Index, ReloadPolicy};
+#[cfg(feature = "mmap")]
 use tempfile::TempDir;
 
 fn main() -> tantivy::Result<()> {
     // Let's create a temporary directory for the
     // sake of this example
+    #[cfg(feature = "mmap")]
     let index_path = TempDir::new()?;
 
     // # Defining the schema
@@ -65,8 +67,10 @@ fn main() -> tantivy::Result<()> {
     //
     // This will actually just save a meta.json
     // with our schema in the directory.
+    #[cfg(feature = "mmap")]
     let index = Index::create_in_dir(&index_path, schema.clone())?;
-
+    #[cfg(not(feature = "mmap"))]
+    let index = Index::create_in_ram(schema.clone());
     // To insert a document we will need an index writer.
     // There must be only one writer at a time.
     // This single `IndexWriter` is already

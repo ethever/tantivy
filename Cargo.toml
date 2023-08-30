@@ -14,18 +14,30 @@ edition = "2021"
 rust-version = "1.62"
 exclude = ["benches/*.json", "benches/*.txt"]
 
+[lib]
+crate-type = ["cdylib"]
+
 [dependencies]
 oneshot = "0.1.5"
 base64 = "0.21.0"
 byteorder = "1.4.3"
-crc32fast = "1.3.2"
+crc32fast = { version = "1.3.2", features = [
+    "nightly",
+], default-features = false }
 once_cell = "1.10.0"
-regex = { version = "1.5.5", default-features = false, features = ["std", "unicode"] }
+regex = { version = "1.5.5", default-features = false, features = [
+    "std",
+    "unicode",
+] }
 aho-corasick = "1.0"
 tantivy-fst = "0.4.0"
 memmap2 = { version = "0.7.1", optional = true }
 lz4_flex = { version = "0.11", default-features = false, optional = true }
-zstd = { version = "0.12", optional = true, default-features = false }
+zstd = { version = "0.12", optional = true, default-features = false, features = [
+    "experimental",
+    "bindgen",
+    "wasm",
+] }
 tempfile = { version = "3.3.0", optional = true }
 log = "0.4.16"
 serde = { version = "1.0.136", features = ["derive"] }
@@ -33,11 +45,13 @@ serde_json = "1.0.79"
 num_cpus = "1.13.1"
 fs4 = { version = "0.6.3", optional = true }
 levenshtein_automata = "0.2.1"
-uuid = { version = "1.0.0", features = ["v4", "serde"] }
+uuid = { version = "1.0.0", features = ["v4", "serde", "js"] }
 crossbeam-channel = "0.5.4"
 rust-stemmers = "1.2.0"
 downcast-rs = "1.2.0"
-bitpacking = { version = "0.8.4", default-features = false, features = ["bitpacker4x"] }
+bitpacking = { version = "0.8.4", default-features = false, features = [
+    "bitpacker4x",
+] }
 census = "0.4.0"
 rustc-hash = "1.1.0"
 thiserror = "1.0.30"
@@ -46,7 +60,7 @@ fail = { version = "0.5.0", optional = true }
 murmurhash32 = "0.3.0"
 time = { version = "0.3.10", features = ["serde-well-known"] }
 smallvec = "1.8.0"
-rayon = "1.5.2"
+rayon = { version = "1.5.2", optional = true }
 lru = "0.11.0"
 fastdivide = "0.4.0"
 itertools = "0.11.0"
@@ -54,13 +68,13 @@ measure_time = "0.8.2"
 async-trait = "0.1.53"
 arc-swap = "1.5.0"
 
-columnar = { version= "0.1", path="./columnar", package ="tantivy-columnar" }
-sstable = { version= "0.1", path="./sstable", package ="tantivy-sstable", optional = true }
-stacker = { version= "0.1", path="./stacker", package ="tantivy-stacker" }
-query-grammar = { version= "0.20.0", path="./query-grammar", package = "tantivy-query-grammar" }
-tantivy-bitpacker = { version= "0.4", path="./bitpacker" }
-common = { version= "0.5", path = "./common/", package = "tantivy-common" }
-tokenizer-api = { version= "0.1", path="./tokenizer-api", package="tantivy-tokenizer-api" }
+columnar = { version = "0.1", path = "./columnar", package = "tantivy-columnar" }
+sstable = { version = "0.1", path = "./sstable", package = "tantivy-sstable", optional = true }
+stacker = { version = "0.1", path = "./stacker", package = "tantivy-stacker" }
+query-grammar = { version = "0.20.0", path = "./query-grammar", package = "tantivy-query-grammar" }
+tantivy-bitpacker = { version = "0.4", path = "./bitpacker" }
+common = { version = "0.5", path = "./common/", package = "tantivy-common" }
+tokenizer-api = { version = "0.1", path = "./tokenizer-api", package = "tantivy-tokenizer-api" }
 sketches-ddsketch = { version = "0.2.1", features = ["use_serde"] }
 futures-util = { version = "0.3.28", optional = true }
 
@@ -73,10 +87,14 @@ maplit = "1.0.2"
 matches = "0.1.9"
 pretty_assertions = "1.2.1"
 proptest = "1.0.0"
-criterion = "0.5"
+# criterion = "0.5"
 test-log = "0.2.10"
 env_logger = "0.10.0"
-pprof = { git = "https://github.com/PSeitz/pprof-rs/", rev = "53af24b", features = ["flamegraph", "criterion"] } # temp fork that works with criterion 0.5
+# pprof = { git = "https://github.com/PSeitz/pprof-rs/", rev = "53af24b", features = [
+#     "flamegraph",
+#     "criterion",
+# ] } 
+# temp fork that works with criterion 0.5
 futures = "0.3.21"
 paste = "1.0.11"
 more-asserts = "0.3.1"
@@ -101,20 +119,33 @@ debug-assertions = true
 overflow-checks = true
 
 [features]
-default = ["mmap", "stopwords", "lz4-compression"]
-mmap = ["fs4", "tempfile", "memmap2"]
+default = ["icp", "stopwords", "tempfile", "zstd-compression"]
+threads = ["rayon"]
+rayon = ["dep:rayon"]
+# default = ["mmap", "stopwords", "lz4-compression"]
+# mmap = ["fs4", "tempfile", "memmap2"]
 stopwords = []
+icp = []
 
-lz4-compression = ["lz4_flex"]
-zstd-compression = ["zstd"]
+lz4-compression = ["dep:lz4_flex"]
+zstd-compression = ["dep:zstd"]
 
 failpoints = ["fail", "fail/failpoints"]
-unstable = [] # useful for benches.
+unstable = []                            # useful for benches.
 
 quickwit = ["sstable", "futures-util"]
 
 [workspace]
-members = ["query-grammar", "bitpacker", "common", "ownedbytes", "stacker", "sstable", "tokenizer-api", "columnar"]
+members = [
+    "query-grammar",
+    "bitpacker",
+    "common",
+    "ownedbytes",
+    "stacker",
+    "sstable",
+    "tokenizer-api",
+    "columnar",
+]
 
 # Following the "fail" crate best practises, we isolate
 # tests that define specific behavior in fail check points

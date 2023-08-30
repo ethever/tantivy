@@ -410,11 +410,13 @@ mod tests {
     use super::IndexMeta;
     use crate::core::index_meta::UntrackedIndexMeta;
     use crate::schema::{Schema, TEXT};
+    #[cfg(feature = "lz4-compression")]
     use crate::store::Compressor;
     #[cfg(feature = "zstd-compression")]
     use crate::store::ZstdCompressor;
     use crate::{IndexSettings, IndexSortByField, Order};
 
+    #[cfg(feature = "lz4-compression")]
     #[test]
     fn test_serialize_metas() {
         let schema = {

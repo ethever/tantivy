@@ -58,6 +58,7 @@ pub mod tests {
 
     use super::*;
     use crate::directory::{Directory, RamDirectory, WritePtr};
+    #[cfg(feature = "lz4-compression")]
     use crate::fastfield::AliveBitSet;
     use crate::schema::{self, Document, Schema, TextFieldIndexing, TextOptions, STORED, TEXT};
     use crate::{Index, Term};
@@ -99,6 +100,8 @@ pub mod tests {
     }
 
     const NUM_DOCS: usize = 1_000;
+
+    #[cfg(feature = "lz4-compression")]
     #[test]
     fn test_doc_store_iter_with_delete_bug_1077() -> crate::Result<()> {
         // this will cover deletion of the first element in a checkpoint

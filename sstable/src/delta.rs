@@ -2,6 +2,7 @@ use std::io::{self, BufWriter, Write};
 use std::ops::Range;
 
 use common::{CountingWriter, OwnedBytes};
+#[cfg(feature = "zstd")]
 use zstd::bulk::Compressor;
 
 use super::value::ValueWriter;
@@ -55,19 +56,28 @@ where
 
         if block_len > 2048 {
             buffer.extend_from_slice(&self.block);
-            self.block.clear();
+            #[cfg(feature = "zstd")]
+            {
+                self.block.clear();
+                let max_len = zstd::zstd_safe::compress_bound(buffer.len());
+                self.block.reserve(max_len);
+                Compressor::new(3)?.compress_to_buffer(buffer, &mut self.block)?;
 
-            let max_len = zstd::zstd_safe::compress_bound(buffer.len());
-            self.block.reserve(max_len);
-            Compressor::new(3)?.compress_to_buffer(buffer, &mut self.block)?;
-
-            // verify compression had a positive impact
-            if self.block.len() < buffer.len() {
-                self.write
-                    .write_all(&(self.block.len() as u32 + 1).to_le_bytes())?;
-                self.write.write_all(&[1])?;
-                self.write.write_all(&self.block[..])?;
-            } else {
+                // verify compression had a positive impact
+                if self.block.len() < buffer.len() {
+                    self.write
+                        .write_all(&(self.block.len() as u32 + 1).to_le_bytes())?;
+                    self.write.write_all(&[1])?;
+                    self.write.write_all(&self.block[..])?;
+                } else {
+                    self.write
+                        .write_all(&(block_len as u32 + 1).to_le_bytes())?;
+                    self.write.write_all(&[0])?;
+                    self.write.write_all(&buffer[..])?;
+                }
+            }
+            #[cfg(not(feature = "zstd"))]
+            {
                 self.write
                     .write_all(&(block_len as u32 + 1).to_le_bytes())?;
                 self.write.write_all(&[0])?;

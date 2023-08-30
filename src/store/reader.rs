@@ -426,8 +426,10 @@ mod tests {
         assert_eq!(store.cache_stats().cache_hits, 1);
         assert_eq!(store.cache_stats().cache_misses, 2);
 
+        #[cfg(feature = "lz4-compression")]
         assert_eq!(store.cache.peek_lru(), Some(11207));
-
+        #[cfg(feature = "zstd-compression")]
+        assert_eq!(store.cache.peek_lru(), Some(8164));
         Ok(())
     }
 }

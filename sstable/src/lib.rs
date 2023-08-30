@@ -145,6 +145,7 @@ where TValueReader: ValueReader
             return Ok(false);
         }
         let common_prefix_len = self.delta_reader.common_prefix_len();
+
         let suffix = self.delta_reader.suffix();
         let new_len = self.delta_reader.common_prefix_len() + suffix.len();
         self.key.resize(new_len, 0u8);

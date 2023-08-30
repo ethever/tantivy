@@ -95,7 +95,7 @@ impl Drop for FileWatcher {
         self.state.store(2, Ordering::SeqCst);
     }
 }
-
+#[cfg(feature = "mmap")]
 #[cfg(test)]
 mod tests {
 
@@ -104,6 +104,7 @@ mod tests {
     use super::*;
     use crate::directory::mmap_directory::atomic_write;
 
+    #[cfg(feature = "mmap")]
     #[test]
     fn test_file_watcher_drop_watcher() -> crate::Result<()> {
         let tmp_dir = tempfile::TempDir::new()?;

@@ -10,16 +10,24 @@ categories = ["database-implementations", "data-structures", "compression"]
 description = "sstables for tantivy"
 
 [dependencies]
-common = {version= "0.5", path="../common", package="tantivy-common"}
+common = { version = "0.5", path = "../common", package = "tantivy-common" }
 tantivy-fst = "0.4"
 # experimental gives us access to Decompressor::upper_bound
-zstd = { version = "0.12", features = ["experimental"] }
+zstd = { version = "0.12", features = [
+    "experimental",
+    "wasm",
+    "bindgen",
+], optional = true, default-features = false }
 
 [dev-dependencies]
 proptest = "1"
 criterion = "0.5"
 names = "0.14"
 rand = "0.8"
+
+[features]
+default = ["zstd"]
+zstd = ["dep:zstd"]
 
 [[bench]]
 name = "stream_bench"

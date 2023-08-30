@@ -45,8 +45,18 @@ impl<'a> PreparedCommit<'a> {
     /// At this point deletes have not been flushed yet.
     pub fn commit_future(self) -> FutureResult<Opstamp> {
         info!("committing {}", self.opstamp);
-        self.index_writer
-            .segment_updater()
-            .schedule_commit(self.opstamp, self.payload)
+
+        #[cfg(feature = "threads")]
+        {
+            self.index_writer
+                .segment_updater()
+                .schedule_commit(self.opstamp, self.payload)
+        }
+        #[cfg(not(feature = "threads"))]
+        {
+            self.index_writer
+                .segment_updater()
+                .commit(self.opstamp, self.payload)
+        }
     }
 }

@@ -55,5 +55,8 @@ pub static INDEX_WRITER_LOCK: Lazy<Lock> = Lazy::new(|| Lock {
 /// Opening segment readers is a very fast process.
 pub static META_LOCK: Lazy<Lock> = Lazy::new(|| Lock {
     filepath: PathBuf::from(".tantivy-meta.lock"),
+    #[cfg(feature = "threads")]
     is_blocking: true,
+    #[cfg(not(feature = "threads"))]
+    is_blocking: false,
 });

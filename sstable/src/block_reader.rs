@@ -2,6 +2,7 @@ use std::io::{self, Read};
 use std::ops::Range;
 
 use common::OwnedBytes;
+#[cfg(feature = "zstd")]
 use zstd::bulk::Decompressor;
 
 pub struct BlockReader {
@@ -47,6 +48,7 @@ impl BlockReader {
         if block_len <= 1 {
             return Ok(false);
         }
+        #[cfg(feature = "zstd")]
         let compress = self.reader.read_u8();
         let block_len = block_len - 1;
 
@@ -56,15 +58,25 @@ impl BlockReader {
                 "failed to read block content",
             ));
         }
-        if compress == 1 {
-            let required_capacity =
-                Decompressor::upper_bound(&self.reader[..block_len]).unwrap_or(1024 * 1024);
-            self.buffer.reserve(required_capacity);
-            Decompressor::new()?
-                .decompress_to_buffer(&self.reader[..block_len], &mut self.buffer)?;
 
-            self.reader.advance(block_len);
-        } else {
+        #[cfg(feature = "zstd")]
+        {
+            if compress == 1 {
+                let required_capacity =
+                    Decompressor::upper_bound(&self.reader[..block_len]).unwrap_or(1024 * 1024);
+                self.buffer.reserve(required_capacity);
+                Decompressor::new()?
+                    .decompress_to_buffer(&self.reader[..block_len], &mut self.buffer)?;
+
+                self.reader.advance(block_len);
+            } else {
+                self.buffer.resize(block_len, 0u8);
+                self.reader.read_exact(&mut self.buffer[..])?;
+            }
+        }
+
+        #[cfg(not(feature = "zstd"))]
+        {
             self.buffer.resize(block_len, 0u8);
             self.reader.read_exact(&mut self.buffer[..])?;
         }

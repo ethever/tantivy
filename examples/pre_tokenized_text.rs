@@ -14,6 +14,7 @@ use tantivy::query::TermQuery;
 use tantivy::schema::*;
 use tantivy::tokenizer::{PreTokenizedString, SimpleTokenizer, Token, TokenStream, Tokenizer};
 use tantivy::{doc, Index, ReloadPolicy};
+#[cfg(feature = "mmap")]
 use tempfile::TempDir;
 
 fn pre_tokenize_text(text: &str) -> Vec<Token> {
@@ -27,6 +28,7 @@ fn pre_tokenize_text(text: &str) -> Vec<Token> {
 }
 
 fn main() -> tantivy::Result<()> {
+    #[cfg(feature = "mmap")]
     let index_path = TempDir::new()?;
 
     let mut schema_builder = Schema::builder();
@@ -36,8 +38,10 @@ fn main() -> tantivy::Result<()> {
 
     let schema = schema_builder.build();
 
+    #[cfg(feature = "mmap")]
     let index = Index::create_in_dir(&index_path, schema.clone())?;
-
+    #[cfg(not(feature = "mmap"))]
+    let index = Index::create_in_ram(schema.clone());
     let mut index_writer = index.writer(50_000_000)?;
 
     // We can create a document manually, by setting the fields
