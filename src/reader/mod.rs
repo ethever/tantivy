@@ -9,7 +9,9 @@ pub use warming::Warmer;
 
 use self::warming::WarmingState;
 use crate::core::searcher::{SearcherGeneration, SearcherInner};
-use crate::directory::{Directory, WatchCallback, WatchHandle, META_LOCK};
+#[cfg(feature = "threads")]
+use crate::directory::META_LOCK;
+use crate::directory::{Directory, WatchCallback, WatchHandle};
 use crate::store::DOCSTORE_CACHE_CAPACITY;
 use crate::{Index, Inventory, Searcher, SegmentReader, TrackedObject};
 
@@ -67,11 +69,20 @@ impl IndexReaderBuilder {
     /// of time and it may return an error.
     pub fn try_into(self) -> crate::Result<IndexReader> {
         let searcher_generation_inventory = Inventory::default();
-        let warming_state = WarmingState::new(
-            self.num_warming_threads,
-            self.warmers,
-            searcher_generation_inventory.clone(),
-        )?;
+        let warming_state = {
+            #[cfg(feature = "threads")]
+            {
+                WarmingState::new(
+                    self.num_warming_threads,
+                    self.warmers,
+                    searcher_generation_inventory.clone(),
+                )?
+            }
+            #[cfg(not(feature = "threads"))]
+            {
+                WarmingState::new(self.warmers, searcher_generation_inventory.clone())?
+            }
+        };
         let inner_reader = InnerIndexReader::new(
             self.doc_store_cache_num_blocks,
             self.index,

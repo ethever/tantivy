@@ -25,11 +25,12 @@ pub(crate) struct WarmingState(Arc<Mutex<WarmingStateInner>>);
 
 impl WarmingState {
     pub fn new(
-        num_warming_threads: usize,
+        #[cfg(feature = "threads")] num_warming_threads: usize,
         warmers: Vec<Weak<dyn Warmer>>,
         searcher_generation_inventory: Inventory<SearcherGeneration>,
     ) -> crate::Result<Self> {
         Ok(Self(Arc::new(Mutex::new(WarmingStateInner {
+            #[cfg(feature = "threads")]
             num_warming_threads,
             warmers,
             gc_thread: None,
@@ -57,6 +58,7 @@ impl WarmingState {
 }
 
 struct WarmingStateInner {
+    #[cfg(feature = "threads")]
     num_warming_threads: usize,
     warmers: Vec<Weak<dyn Warmer>>,
     gc_thread: Option<JoinHandle<()>>,

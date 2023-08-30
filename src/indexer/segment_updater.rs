@@ -835,6 +835,7 @@ impl SegmentUpdater {
         Ok(after_merge_segment_meta)
     }
 
+    #[cfg(feature = "threads")]
     /// Wait for current merging threads.
     ///
     /// Upon termination of the current merging threads,

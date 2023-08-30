@@ -1,6 +1,8 @@
 use std::ops::Range;
 use std::sync::Arc;
+#[cfg(feature = "threads")]
 use std::thread;
+#[cfg(feature = "threads")]
 use std::thread::JoinHandle;
 
 use common::BitSet;
@@ -351,6 +353,30 @@ impl IndexWriter {
         let segment_updater =
             SegmentUpdater::create(index.clone(), stamper.clone(), &delete_queue.cursor())?;
 
+        #[cfg(not(feature = "threads"))]
+        let index_writer = IndexWriter {
+            _directory_lock: Some(directory_lock),
+
+            memory_arena_in_bytes_per_thread,
+            index: index.clone(),
+            index_writer_status: IndexWriterStatus::from(document_receiver),
+            operation_sender: document_sender,
+
+            segment_updater,
+
+            #[cfg(feature = "threads")]
+            workers_join_handle: vec![],
+            #[cfg(feature = "threads")]
+            num_threads,
+
+            delete_queue,
+
+            committed_opstamp: current_opstamp,
+            stamper,
+            #[cfg(feature = "threads")]
+            worker_id: 0,
+        };
+        #[cfg(feature = "threads")]
         let mut index_writer = IndexWriter {
             _directory_lock: Some(directory_lock),
 
@@ -390,6 +416,8 @@ impl IndexWriter {
 
     #[cfg(not(feature = "threads"))]
     #[allow(unused_mut)]
+    /// If there are some merging threads, blocks until they all finish their work and
+    /// then drop the `IndexWriter`.
     pub fn wait_merging_threads(mut self) -> crate::Result<()> {
         // no-op
         Ok(())
@@ -423,6 +451,7 @@ impl IndexWriter {
     }
 
     #[cfg(not(feature = "threads"))]
+    #[doc(hidden)]
     pub fn add_segment(&self, segment_meta: SegmentMeta) -> crate::Result<()> {
         let delete_cursor = self.delete_queue.cursor();
         let segment_entry = SegmentEntry::new(segment_meta, delete_cursor, None);
@@ -585,6 +614,7 @@ impl IndexWriter {
     }
 
     #[cfg(not(feature = "threads"))]
+    /// Detects and removes the files that are not used by the index anymore.
     pub fn garbage_collect_files(&self) -> FutureResult<GarbageCollectionResult> {
         self.segment_updater.garbage_collect()
     }
@@ -1967,6 +1997,7 @@ mod tests {
                     segment_ids.sort();
                     if segment_ids.len() >= 2 {
                         index_writer.merge(&segment_ids).wait().unwrap();
+                        #[cfg(feature = "threads")]
                         assert!(index_writer.segment_updater().wait_merging_thread().is_ok());
                     }
                 }

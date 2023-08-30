@@ -1,3 +1,4 @@
+#[cfg(feature = "threads")]
 use std::io::BufRead;
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -7,17 +8,21 @@ use std::{fs, io, thread};
 
 use crc32fast::Hasher;
 
+#[cfg(feature = "threads")]
 use crate::directory::{WatchCallback, WatchCallbackList, WatchHandle};
 
+#[cfg(feature = "threads")]
 const POLLING_INTERVAL: Duration = Duration::from_millis(if cfg!(test) { 1 } else { 500 });
 
 // Watches a file and executes registered callbacks when the file is modified.
 pub struct FileWatcher {
+    #[cfg(feature = "threads")]
     path: Arc<Path>,
+    #[cfg(feature = "threads")]
     callbacks: Arc<WatchCallbackList>,
     state: Arc<AtomicUsize>, // 0: new, 1: runnable, 2: terminated
 }
-
+#[cfg(feature = "threads")]
 impl FileWatcher {
     pub fn new(path: &Path) -> FileWatcher {
         FileWatcher {
@@ -26,7 +31,6 @@ impl FileWatcher {
             state: Default::default(),
         }
     }
-
     pub fn spawn(&self) {
         if self
             .state
@@ -64,7 +68,6 @@ impl FileWatcher {
             })
             .expect("Failed to spawn meta file watcher thread");
     }
-
     pub fn watch(&self, callback: WatchCallback) -> WatchHandle {
         let handle = self.callbacks.subscribe(callback);
         self.spawn();

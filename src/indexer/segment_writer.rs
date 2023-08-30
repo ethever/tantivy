@@ -443,8 +443,11 @@ fn remap_and_write(
 
 #[cfg(test)]
 mod tests {
-    use std::path::{Path, PathBuf};
+    use std::path::Path;
+    #[cfg(feature = "mmap")]
+    use std::path::PathBuf;
 
+    #[cfg(feature = "mmap")]
     use tempfile::TempDir;
 
     use super::compute_initial_table_size;
@@ -453,9 +456,11 @@ mod tests {
     use crate::directory::RamDirectory;
     use crate::postings::TermInfo;
     use crate::query::PhraseQuery;
-    use crate::schema::{
-        IndexRecordOption, Schema, TextFieldIndexing, TextOptions, Type, STORED, STRING, TEXT,
-    };
+    #[cfg(feature = "mmap")]
+    use crate::schema::TextFieldIndexing;
+    #[cfg(feature = "mmap")]
+    use crate::schema::TextOptions;
+    use crate::schema::{IndexRecordOption, Schema, Type, STORED, STRING, TEXT};
     use crate::store::{Compressor, StoreReader, StoreWriter};
     use crate::time::format_description::well_known::Rfc3339;
     use crate::time::OffsetDateTime;
