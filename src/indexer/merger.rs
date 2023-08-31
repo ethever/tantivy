@@ -6,6 +6,7 @@ use columnar::{
 };
 use common::ReadOnlyBitSet;
 use itertools::Itertools;
+#[cfg(feature = "measure")]
 use measure_time::debug_time;
 
 use crate::core::{Segment, SegmentReader};
@@ -260,6 +261,7 @@ impl IndexMerger {
         fast_field_wrt: &mut WritePtr,
         doc_id_mapping: SegmentDocIdMapping,
     ) -> crate::Result<()> {
+        #[cfg(feature = "measure")]
         debug_time!("write-fast-fields");
         let required_columns = extract_fast_field_required_columns(&self.schema);
         let columnars: Vec<&ColumnarReader> = self
@@ -451,6 +453,7 @@ impl IndexMerger {
         fieldnorm_reader: Option<FieldNormReader>,
         doc_id_mapping: &SegmentDocIdMapping,
     ) -> crate::Result<()> {
+        #[cfg(feature = "measure")]
         debug_time!("write-postings-for-field");
         let mut positions_buffer: Vec<u32> = Vec::with_capacity(1_000);
         let mut delta_computer = DeltaComputer::new();
@@ -633,6 +636,7 @@ impl IndexMerger {
         store_writer: &mut StoreWriter,
         doc_id_mapping: &SegmentDocIdMapping,
     ) -> crate::Result<()> {
+        #[cfg(feature = "measure")]
         debug_time!("write-storable-fields");
         debug!("write-storable-field");
 
