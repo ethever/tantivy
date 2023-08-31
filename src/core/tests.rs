@@ -1,12 +1,19 @@
 use crate::collector::Count;
-use crate::directory::{RamDirectory, WatchCallback};
+#[cfg(feature = "mmap")]
+use crate::directory::WatchCallback;
+
+#[cfg(feature = "mmap")]
+use crate::schema::Field;
+#[cfg(feature = "mmap")]
+use crate::IndexReader;
+
+use crate::directory::RamDirectory;
 use crate::indexer::NoMergePolicy;
 use crate::query::TermQuery;
-use crate::schema::{Field, IndexRecordOption, Schema, INDEXED, STRING, TEXT};
+use crate::schema::{IndexRecordOption, Schema, INDEXED, STRING, TEXT};
 use crate::tokenizer::TokenizerManager;
 use crate::{
-    Directory, Document, Index, IndexBuilder, IndexReader, IndexSettings, ReloadPolicy, SegmentId,
-    Term,
+    Directory, Document, Index, IndexBuilder, IndexSettings, ReloadPolicy, SegmentId, Term,
 };
 
 #[test]
