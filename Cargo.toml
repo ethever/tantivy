@@ -76,6 +76,7 @@ sketches-ddsketch = { version = "0.2.1", features = ["use_serde"] }
 futures-util = { version = "0.3.28", optional = true }
 
 getrandom = { version = "0.2", features = ["custom"] }
+ic-cdk = { version = "0.10.0", optional = true }
 
 [target.'cfg(windows)'.dependencies]
 winapi = "0.3.9"
@@ -131,7 +132,7 @@ rayon = ["dep:rayon"]
 # default = ["mmap", "stopwords", "lz4-compression"]
 # mmap = ["fs4", "tempfile", "memmap2"]
 stopwords = []
-icp = []
+icp = ["dep:ic-cdk"]
 
 measure = ["dep:measure_time"]
 
