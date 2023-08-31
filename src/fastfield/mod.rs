@@ -941,7 +941,7 @@ mod tests {
 
         let numbers = [100, 200, 300];
         let test_range = |range: RangeInclusive<u64>| {
-            let expexted_count = numbers.iter().filter(|num| range.contains(num)).count();
+            let expexted_count = numbers.iter().filter(|num| range.contains(*num)).count();
             let mut vec = vec![];
             field.get_row_ids_for_value_range(range, 0..u32::MAX, &mut vec);
             assert_eq!(vec.len(), expexted_count);
@@ -1015,7 +1015,7 @@ mod tests {
 
         let numbers = [1000, 1001, 1003];
         let test_range = |range: RangeInclusive<u64>| {
-            let expexted_count = numbers.iter().filter(|num| range.contains(num)).count();
+            let expexted_count = numbers.iter().filter(|num| range.contains(*num)).count();
             let mut vec = vec![];
             field.get_row_ids_for_value_range(range, 0..u32::MAX, &mut vec);
             assert_eq!(vec.len(), expexted_count);
