@@ -1,7 +1,11 @@
+use std::io;
 use std::io::Write;
+#[cfg(feature = "threads")]
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
+#[cfg(feature = "threads")]
+use std::thread;
+#[cfg(feature = "threads")]
 use std::thread::JoinHandle;
-use std::{io, thread};
 
 use common::{BinarySerializable, CountingWriter, TerminatingWrite};
 
@@ -17,10 +21,19 @@ pub struct BlockCompressor(BlockCompressorVariants);
 // impls private.
 enum BlockCompressorVariants {
     SameThread(BlockCompressorImpl),
+    #[cfg(feature = "threads")]
     DedicatedThread(DedicatedThreadBlockCompressorImpl),
 }
 
 impl BlockCompressor {
+    #[cfg(not(feature = "threads"))]
+    pub fn new(compressor: Compressor, wrt: WritePtr, _dedicated_thread: bool) -> io::Result<Self> {
+        let block_compressor_impl = BlockCompressorImpl::new(compressor, wrt);
+        Ok(BlockCompressor(BlockCompressorVariants::SameThread(
+            block_compressor_impl,
+        )))
+    }
+    #[cfg(feature = "threads")]
     pub fn new(compressor: Compressor, wrt: WritePtr, dedicated_thread: bool) -> io::Result<Self> {
         let block_compressor_impl = BlockCompressorImpl::new(compressor, wrt);
         if dedicated_thread {
@@ -45,6 +58,7 @@ impl BlockCompressor {
             BlockCompressorVariants::SameThread(block_compressor) => {
                 block_compressor.compress_block_and_write(bytes, num_docs_in_block)?;
             }
+            #[cfg(feature = "threads")]
             BlockCompressorVariants::DedicatedThread(different_thread_block_compressor) => {
                 different_thread_block_compressor
                     .compress_block_and_write(bytes, num_docs_in_block)?;
@@ -58,6 +72,7 @@ impl BlockCompressor {
             BlockCompressorVariants::SameThread(block_compressor) => {
                 block_compressor.stack(store_reader)?;
             }
+            #[cfg(feature = "threads")]
             BlockCompressorVariants::DedicatedThread(different_thread_block_compressor) => {
                 different_thread_block_compressor.stack_reader(store_reader)?;
             }
@@ -69,6 +84,7 @@ impl BlockCompressor {
         let imp = self.0;
         match imp {
             BlockCompressorVariants::SameThread(block_compressor) => block_compressor.close(),
+            #[cfg(feature = "threads")]
             BlockCompressorVariants::DedicatedThread(different_thread_block_compressor) => {
                 different_thread_block_compressor.close()
             }
@@ -151,6 +167,8 @@ impl BlockCompressorImpl {
     }
 }
 
+#[cfg(feature = "threads")]
+
 // ---------------------------------
 enum BlockCompressorMessage {
     CompressBlockAndWrite {
@@ -159,11 +177,14 @@ enum BlockCompressorMessage {
     },
     Stack(StoreReader),
 }
+#[cfg(feature = "threads")]
 
 struct DedicatedThreadBlockCompressorImpl {
     join_handle: Option<JoinHandle<io::Result<()>>>,
     tx: SyncSender<BlockCompressorMessage>,
 }
+
+#[cfg(feature = "threads")]
 
 impl DedicatedThreadBlockCompressorImpl {
     fn new(mut block_compressor: BlockCompressorImpl) -> io::Result<Self> {
@@ -221,6 +242,8 @@ impl DedicatedThreadBlockCompressorImpl {
         harvest_thread_result(self.join_handle)
     }
 }
+
+#[cfg(feature = "threads")]
 
 /// Wait for the thread result to terminate and returns its result.
 ///

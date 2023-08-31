@@ -114,6 +114,8 @@ fn throw_away_schema() -> Schema {
     schema_builder.build()
 }
 
+#[cfg(feature = "threads")]
+// TODO: fixme
 #[test]
 fn test_index_on_commit_reload_policy() -> crate::Result<()> {
     let schema = throw_away_schema();
@@ -196,6 +198,8 @@ mod mmap_specific {
         test_index_on_commit_reload_policy_aux(field, &write_index, &reader)
     }
 }
+
+#[cfg(feature = "threads")]
 fn test_index_on_commit_reload_policy_aux(
     field: Field,
     index: &Index,

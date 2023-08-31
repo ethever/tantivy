@@ -158,6 +158,9 @@ pub mod space_usage;
 pub mod store;
 pub mod termdict;
 
+#[cfg(feature = "icp")]
+mod getrandom;
+
 mod reader;
 
 pub use self::reader::{IndexReader, IndexReaderBuilder, ReloadPolicy, Warmer};

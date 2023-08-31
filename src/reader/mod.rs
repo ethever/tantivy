@@ -292,6 +292,7 @@ pub struct IndexReader {
 }
 
 impl IndexReader {
+    #[cfg(feature = "threads")]
     #[cfg(test)]
     pub(crate) fn index(&self) -> Index {
         self.inner.index.clone()
