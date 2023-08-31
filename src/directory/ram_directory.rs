@@ -231,7 +231,13 @@ impl Directory for RamDirectory {
         let path_buf = PathBuf::from(path);
         self.fs.write().unwrap().write(path_buf, data);
         if path == *META_FILEPATH {
+            #[cfg(feature = "threads")]
             drop(self.fs.write().unwrap().watch_router.broadcast());
+            #[cfg(not(feature = "threads"))]
+            {
+                let handler = self.fs.write().unwrap().watch_router.broadcast().wait();
+                drop(handler);
+            }
         }
         Ok(())
     }

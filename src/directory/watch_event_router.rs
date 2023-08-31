@@ -72,6 +72,19 @@ impl WatchCallbackList {
         callbacks
     }
 
+    #[cfg(not(feature = "threads"))]
+    /// Triggers all callbacks
+    pub fn broadcast(&self) -> FutureResult<()> {
+        let callbacks = self.list_callback();
+        let (result, sender) = FutureResult::create("One of the callback panicked.");
+        for callback in callbacks.clone() {
+            callback.call();
+        }
+        let _ = sender.send(Ok(()));
+        return result;
+    }
+
+    #[cfg(feature = "threads")]
     /// Triggers all callbacks
     pub fn broadcast(&self) -> FutureResult<()> {
         let callbacks = self.list_callback();
