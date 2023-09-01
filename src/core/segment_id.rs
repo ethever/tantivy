@@ -2,10 +2,10 @@ use std::cmp::{Ord, Ordering};
 use std::error::Error;
 use std::fmt;
 use std::str::FromStr;
-#[cfg(test)]
+#[cfg(any(test, feature = "icp"))]
 use std::sync::atomic;
 
-#[cfg(test)]
+#[cfg(any(test, feature = "icp"))]
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -21,10 +21,10 @@ use uuid::Uuid;
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct SegmentId(Uuid);
 
-#[cfg(test)]
+#[cfg(any(test, feature = "icp"))]
 static AUTO_INC_COUNTER: Lazy<atomic::AtomicUsize> = Lazy::new(atomic::AtomicUsize::default);
 
-#[cfg(test)]
+#[cfg(any(test, feature = "icp"))]
 const ZERO_ARRAY: [u8; 8] = [0u8; 8];
 
 // During tests, we generate the segment id in a autoincrement manner
@@ -32,13 +32,13 @@ const ZERO_ARRAY: [u8; 8] = [0u8; 8];
 //
 // The order of the test execution is not guaranteed, but the order
 // of segments within a single test is guaranteed.
-#[cfg(test)]
+#[cfg(any(test, feature = "icp"))]
 fn create_uuid() -> Uuid {
     let new_auto_inc_id = (*AUTO_INC_COUNTER).fetch_add(1, atomic::Ordering::SeqCst);
     Uuid::from_fields(new_auto_inc_id as u32, 0, 0, &ZERO_ARRAY)
 }
 
-#[cfg(not(test))]
+#[cfg(not(any(test, feature = "icp")))]
 fn create_uuid() -> Uuid {
     Uuid::new_v4()
 }
