@@ -1029,6 +1029,101 @@ mod tests {
         assert_eq!(batch_opstamp1, 2u64);
     }
 
+    use std::cell::RefCell;
+    thread_local! {
+        static DB: RefCell<(Index, Schema)> = RefCell::new({
+            let schema = {
+                let mut schema_builder = schema::Schema::builder();
+                schema_builder.add_text_field("title", TEXT);
+                schema_builder.add_text_field("body", TEXT);
+                let res = schema_builder.build();
+                res
+            };
+
+            let index = Index::create_in_ram(schema.clone());
+
+            (index, schema)
+        })
+    }
+
+    #[cfg(feature = "icp")]
+    #[test]
+    fn in_thread_local_should_work() {
+        for i in 0..100 {
+            DB.with(|r| {
+                let mut res = r.to_owned();
+                let res = res.get_mut();
+                let index = &res.0;
+                let schema = &res.1;
+                let title_field = schema.get_field("title").unwrap();
+                let body_field = schema.get_field("body").unwrap();
+
+                let mut index_writer = index.writer_canister(15_000_000).unwrap();
+                index_writer.add_document(
+                    doc!(title_field => format!("title{}", i), body_field => format!("body{}", i)),
+                ).unwrap();
+
+                index_writer.commit().unwrap();
+
+                let reader = index
+                    .reader_builder()
+                    .reload_policy(ReloadPolicy::Manual)
+                    .try_into()
+                    .unwrap();
+                reader.reload().unwrap();
+                let searcher = reader.searcher();
+
+                assert!(searcher.num_docs() >= 1);
+            });
+        }
+    }
+
+    #[cfg(feature = "icp")]
+    #[test]
+    fn test_canister() {
+        let mut schema_builder = schema::Schema::builder();
+        let text_field = schema_builder.add_text_field("text", TEXT);
+        let body_field = schema_builder.add_text_field("title", TEXT);
+        let index = Index::create_in_ram(schema_builder.build());
+
+        for _ in 0..1000 {
+            let mut index_writer = index.writer_canister(15_000_000).unwrap();
+            index_writer
+                .add_document(doc!(text_field => "hadhsahdsahd",  body_field => "body1"))
+                .unwrap();
+            index_writer
+                .add_document(doc!(text_field => "hadhsahdsahd2", body_field => "body2"))
+                .unwrap();
+            index_writer
+                .add_document(doc!(text_field => "hadhsahdsahd3", body_field => "body3"))
+                .unwrap();
+            index_writer
+                .add_document(doc!(text_field => "hadhsahdsahd4", body_field => "body4"))
+                .unwrap();
+
+            assert!(index_writer.commit().is_ok());
+            let reader = index
+                .reader_builder()
+                .reload_policy(ReloadPolicy::Manual)
+                .try_into()
+                .unwrap();
+            reader.reload().unwrap();
+            let searcher = reader.searcher();
+            let len = searcher.num_docs();
+
+            assert!(len >= 4u64);
+        }
+        let reader = index
+            .reader_builder()
+            .reload_policy(ReloadPolicy::Manual)
+            .try_into()
+            .unwrap();
+        reader.reload().unwrap();
+        let searcher = reader.searcher();
+
+        assert_eq!(searcher.num_docs(), 4000);
+    }
+
     #[cfg(feature = "icp")]
     #[test]
     // TODO: a better name here.
@@ -2429,7 +2524,9 @@ mod tests {
                 assert!(is_sorted(&ids_in_segment));
 
                 fn is_sorted<T>(data: &[T]) -> bool
-                where T: Ord {
+                where
+                    T: Ord,
+                {
                     data.windows(2).all(|w| w[0] <= w[1])
                 }
             }

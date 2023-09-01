@@ -562,9 +562,12 @@ impl Index {
     }
 
     #[cfg(feature = "icp")]
-    /// TODO: a better name here.
+    /// TODO: add supporting for canister's stable memory.
     /// The icp system only support one thread per canister.
-    pub fn writer_icp(&self, overall_memory_arena_in_bytes: usize) -> crate::Result<IndexWriter> {
+    pub fn writer_canister(
+        &self,
+        overall_memory_arena_in_bytes: usize,
+    ) -> crate::Result<IndexWriter> {
         let directory_lock = self
             .directory
             .acquire_lock(&INDEX_WRITER_LOCK)
