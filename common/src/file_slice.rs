@@ -1,3 +1,4 @@
+#[cfg(not(feature = "icp"))]
 use std::fs::File;
 use std::ops::{Deref, Range, RangeBounds};
 use std::sync::Arc;
@@ -33,12 +34,14 @@ pub trait FileHandle: 'static + Send + Sync + HasLen + fmt::Debug {
     }
 }
 
+#[cfg(not(feature = "icp"))]
 #[derive(Debug)]
 /// A File with it's length included.
 pub struct WrapFile {
     file: File,
     len: usize,
 }
+#[cfg(not(feature = "icp"))]
 impl WrapFile {
     /// Creates a new WrapFile and stores its length.
     pub fn new(file: File) -> io::Result<Self> {
@@ -46,7 +49,7 @@ impl WrapFile {
         Ok(WrapFile { file, len })
     }
 }
-
+#[cfg(not(feature = "icp"))]
 #[async_trait]
 impl FileHandle for WrapFile {
     fn read_bytes(&self, range: Range<usize>) -> io::Result<OwnedBytes> {
@@ -83,6 +86,7 @@ impl FileHandle for WrapFile {
     }
     // todo implement async
 }
+#[cfg(not(feature = "icp"))]
 impl HasLen for WrapFile {
     fn len(&self) -> usize {
         self.len

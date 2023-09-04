@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 #[derive(
     Clone, Copy, Debug, PartialEq, PartialOrd, Ord, Eq, Hash, Serialize, Deserialize, Default,
 )]
+#[cfg_attr(feature = "icp", derive(candid::CandidType))]
 pub enum IndexRecordOption {
     /// records only the `DocId`s
     #[serde(rename = "basic")]

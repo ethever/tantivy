@@ -8,6 +8,7 @@ use time::{OffsetDateTime, PrimitiveDateTime, UtcOffset};
 
 /// Precision with which datetimes are truncated when stored in fast fields. This setting is only
 /// relevant for fast fields. In the docstore, datetimes are always saved with nanosecond precision.
+#[cfg_attr(feature = "icp", derive(candid::CandidType))]
 #[derive(
     Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Default,
 )]

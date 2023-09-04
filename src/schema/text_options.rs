@@ -9,6 +9,7 @@ use crate::schema::IndexRecordOption;
 
 /// Define how a text field should be handled by tantivy.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Default)]
+#[cfg_attr(feature = "icp", derive(candid::CandidType))]
 pub struct TextOptions {
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -16,6 +17,10 @@ pub struct TextOptions {
     #[serde(default)]
     stored: bool,
     #[serde(default)]
+    #[cfg_attr(
+        feature = "icp",
+        serde(deserialize_with = "crate::schema::de::deserialize")
+    )]
     pub(crate) fast: FastFieldTextOptions,
     #[serde(default)]
     #[serde(skip_serializing_if = "is_false")]
@@ -23,7 +28,24 @@ pub struct TextOptions {
     coerce: bool,
 }
 
+#[cfg(feature = "icp")]
+#[test]
+fn text_options_ser_de_should_work_for_icp_feature() {
+    let res = TextOptions::default();
+    let res = candid::encode_one(res).unwrap();
+    let res: TextOptions = candid::decode_one(&res).unwrap();
+    println!("{res:?}");
+
+    let res = res.set_fast(Some("dsads"));
+
+    let res = candid::encode_one(res).unwrap();
+    let res: TextOptions = candid::decode_one(&res).unwrap();
+    println!("{res:?}");
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+// Using [serde(untagged)] that currently candid do not supported yet.
+// #[cfg_attr(not(feature = "icp"), serde(untagged))]
 #[serde(untagged)]
 /// Enum to control how the fast field setting of a text field.
 pub(crate) enum FastFieldTextOptions {
@@ -32,6 +54,56 @@ pub(crate) enum FastFieldTextOptions {
     /// Enable with tokenizer. The tokenizer must be available on the fast field tokenizer manager.
     /// `Index::fast_field_tokenizer`.
     EnabledWithTokenizer { with_tokenizer: TokenizerName },
+}
+
+// We must impl [`CandidType`] manually for this enum as it
+#[cfg(feature = "icp")]
+impl candid::CandidType for FastFieldTextOptions {
+    fn _ty() -> candid::types::Type {
+        use candid::field;
+        use candid::types::TypeInner;
+        TypeInner::Record(vec![
+            field! {is_enabled: bool::ty()},
+            field! {with_tokenizer: TokenizerName::ty()},
+        ])
+        .into()
+    }
+
+    fn idl_serialize<S>(&self, serializer: S) -> Result<(), S::Error>
+    where S: candid::types::Serializer {
+        use candid::types::Compound;
+        match self {
+            FastFieldTextOptions::IsEnabled(is_enable) => {
+                let mut ser = serializer.serialize_struct().unwrap();
+                ser.serialize_element(is_enable).unwrap();
+                ser.serialize_element("").unwrap();
+            }
+            FastFieldTextOptions::EnabledWithTokenizer { with_tokenizer } => {
+                let mut ser = serializer.serialize_struct()?;
+                ser.serialize_element(&true)?;
+                ser.serialize_element(with_tokenizer)?;
+            }
+        };
+        Ok(())
+    }
+}
+
+#[cfg(feature = "icp")]
+#[test]
+fn fast_field_text_options_ser_and_de_should_work_in_icp_feature() {
+    use ic_cdk::println;
+
+    let res = candid::encode_one(FastFieldTextOptions::IsEnabled(true)).unwrap();
+
+    let _: FastFieldTextOptions = candid::decode_one(&res).unwrap();
+
+    let res = candid::encode_one(FastFieldTextOptions::EnabledWithTokenizer {
+        with_tokenizer: TokenizerName::from_name("tesdtads"),
+    })
+    .unwrap();
+    let res: FastFieldTextOptions = candid::decode_one(&res).unwrap();
+
+    println!("{res:?}");
 }
 
 impl Default for FastFieldTextOptions {
@@ -156,6 +228,7 @@ impl TextOptions {
 }
 
 #[derive(Clone, PartialEq, Debug, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "icp", derive(candid::CandidType))]
 pub(crate) struct TokenizerName(Cow<'static, str>);
 
 const DEFAULT_TOKENIZER_NAME: &str = "default";
@@ -190,6 +263,7 @@ impl TokenizerName {
 /// - Flag indicating, if fieldnorms should be stored (See [fieldnorm](crate::fieldnorm)). Defaults
 ///   to `true`.
 #[derive(Clone, PartialEq, Debug, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "icp", derive(candid::CandidType))]
 pub struct TextFieldIndexing {
     #[serde(default)]
     record: IndexRecordOption,

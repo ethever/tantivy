@@ -179,6 +179,67 @@ pub(crate) fn value_type_to_column_type(typ: Type) -> Option<ColumnType> {
     }
 }
 
+#[cfg(feature = "icp")]
+mod de {
+    use serde::de::Visitor;
+    use serde::Deserializer;
+
+    use crate::schema::text_options::{FastFieldTextOptions, TokenizerName};
+
+    pub(crate) fn deserialize<'de, D>(deserializer: D) -> Result<FastFieldTextOptions, D::Error>
+    where D: Deserializer<'de> {
+        /// This visitor provides the function to deserialize value to
+        /// construct a untagged FastFieldTextOptions from raw bool or map
+        /// or from CandidType
+        struct MixedVisitor;
+
+        impl<'de> Visitor<'de> for MixedVisitor {
+            type Value = FastFieldTextOptions;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("expect FastFieldTextOptions untagged enum as struct.")
+            }
+            fn visit_bool<E>(self, v: bool) -> Result<Self::Value, E>
+            where E: serde::de::Error {
+                Ok(FastFieldTextOptions::IsEnabled(v))
+            }
+            fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+            where A: serde::de::MapAccess<'de> {
+                let entry = map
+                    .next_entry::<candid::IDLValue, candid::IDLValue>()?
+                    .unwrap();
+
+                let res = match entry.1.clone() {
+                    // When comes in this situation(we meets `("with_tokenizer", "default")` from
+                    // the untagged enum), We just need to return the is_enabled
+                    // and tokenizer_name
+                    candid::IDLValue::Text(tokenizer_name) => (true, tokenizer_name),
+                    candid::IDLValue::Bool(is_enable) => {
+                        // Get the tokenizer_name record.
+                        let entry = map
+                            .next_entry::<candid::IDLValue, candid::IDLValue>()?
+                            .unwrap();
+                        let tokenizer_name = match entry.1 {
+                            candid::IDLValue::Text(t) => t,
+                            _ => unreachable!(),
+                        };
+                        (is_enable, tokenizer_name)
+                    }
+                    _ => unreachable!(),
+                };
+
+                match res.0 {
+                    true => Ok(Self::Value::EnabledWithTokenizer {
+                        with_tokenizer: TokenizerName::from_name(&res.1),
+                    }),
+                    false => Ok(Self::Value::IsEnabled(false)),
+                }
+            }
+        }
+        deserializer.deserialize_any(MixedVisitor)
+    }
+}
+
 #[cfg(test)]
 mod tests {
 

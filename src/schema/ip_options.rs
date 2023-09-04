@@ -22,6 +22,7 @@ impl IntoIpv6Addr for IpAddr {
 
 /// Define how an ip field should be handled by tantivy.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[cfg_attr(feature = "icp", derive(candid::CandidType))]
 pub struct IpAddrOptions {
     fast: bool,
     stored: bool,

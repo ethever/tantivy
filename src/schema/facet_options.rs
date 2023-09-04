@@ -8,6 +8,7 @@ use crate::schema::flags::{IndexedFlag, SchemaFlagList, StoredFlag};
 ///
 /// Note that a Facet is always indexed and stored as a fastfield.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[cfg_attr(feature = "icp", derive(candid::CandidType))]
 pub struct FacetOptions {
     stored: bool,
 }

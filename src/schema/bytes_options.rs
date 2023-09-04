@@ -6,6 +6,7 @@ use super::flags::{FastFlag, IndexedFlag, SchemaFlagList, StoredFlag};
 /// Define how a bytes field should be handled by tantivy.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(from = "BytesOptionsDeser")]
+#[cfg_attr(feature = "icp", derive(candid::CandidType))]
 pub struct BytesOptions {
     indexed: bool,
     fieldnorms: bool,

@@ -13,9 +13,22 @@ use crate::store::Compressor;
 use crate::{Inventory, Opstamp, TrackedObject};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "icp", derive(candid::CandidType))]
 struct DeleteMeta {
     num_deleted_docs: u32,
     opstamp: Opstamp,
+}
+
+#[cfg(feature = "icp")]
+#[test]
+fn ser_de_should_work_for_delete_meta() {
+    let res = DeleteMeta {
+        num_deleted_docs: 0,
+        opstamp: 100,
+    };
+
+    let res = candid::encode_one(res).unwrap();
+    let _: DeleteMeta = candid::decode_one(&res).unwrap();
 }
 
 #[derive(Clone, Default)]
@@ -51,6 +64,80 @@ impl SegmentMetaInventory {
 #[derive(Clone)]
 pub struct SegmentMeta {
     tracked: TrackedObject<InnerSegmentMeta>,
+}
+
+impl<'de> Deserialize<'de> for SegmentMeta {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where D: serde::Deserializer<'de> {
+        use serde::de::Visitor;
+
+        #[derive(Deserialize)]
+        #[serde(field_identifier, rename_all = "snake_case")]
+        // The fields we try to deserialize for SegmentMeta struct
+        enum Field {
+            Tracked,
+        }
+
+        struct SegmentMetaVisitor;
+        impl<'de> Visitor<'de> for SegmentMetaVisitor {
+            type Value = SegmentMeta;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("expect InnerSegmentMeta struct.")
+            }
+            fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+            where A: serde::de::MapAccess<'de> {
+                use serde::de::Error;
+                let mut tracked = None;
+
+                while let Some(key) = map.next_key()? {
+                    match key {
+                        Field::Tracked => {
+                            if tracked.is_some() {
+                                return Err(Error::duplicate_field("tracked"));
+                            }
+                            tracked = Some(map.next_value()?);
+                        }
+                    }
+                }
+                let tracked: InnerSegmentMeta =
+                    tracked.ok_or_else(|| Error::missing_field("tracked"))?;
+                Ok(tracked.track(&SegmentMetaInventory::default()))
+            }
+        }
+        const FIELDS: &'static [&'static str] = &["tracked"];
+
+        let res = deserializer.deserialize_struct("SegmentMeta", FIELDS, SegmentMetaVisitor)?;
+
+        Ok(res)
+    }
+}
+
+#[cfg(feature = "icp")]
+impl candid::CandidType for SegmentMeta {
+    fn _ty() -> candid::types::Type {
+        use candid::field;
+        use candid::types::TypeInner;
+        let res = TypeInner::Record(vec![field! {tracked: InnerSegmentMeta::ty()}]);
+        res.into()
+    }
+
+    fn idl_serialize<S>(&self, serializer: S) -> Result<(), S::Error>
+    where S: candid::types::Serializer {
+        use candid::types::Compound;
+        let mut res = serializer.serialize_struct()?;
+        res.serialize_element(self.tracked.as_ref())
+    }
+}
+
+#[cfg(feature = "icp")]
+#[test]
+fn ser_de_should_work_for_segment_meta() {
+    let inv = SegmentMetaInventory::default();
+    let res = inv.new_segment_meta(SegmentId::generate_random(), 100);
+    let res = candid::encode_one(res).unwrap();
+    let res: SegmentMeta = candid::decode_one(&res).unwrap();
+    println!("{res:?}");
 }
 
 impl fmt::Debug for SegmentMeta {
@@ -212,7 +299,20 @@ impl SegmentMeta {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg(feature = "icp")]
+#[test]
+fn inner_segment_meta_ser_de_should_work() {
+    let res = InnerSegmentMeta {
+        segment_id: SegmentId::generate_random(),
+        max_doc: 100,
+        include_temp_doc_store: Arc::new(AtomicBool::new(true)),
+        deletes: None,
+    };
+    let res = candid::encode_one(res).unwrap();
+    let _: InnerSegmentMeta = candid::decode_one(&res).unwrap();
+}
+
+#[derive(Debug, Clone, Serialize)]
 struct InnerSegmentMeta {
     segment_id: SegmentId,
     max_doc: u32,
@@ -220,9 +320,125 @@ struct InnerSegmentMeta {
     /// If you want to avoid the SegmentComponent::TempStore file to be covered by
     /// garbage collection and deleted, set this to true. This is used during merge.
     #[serde(skip)]
-    #[serde(default = "default_temp_store")]
+    #[cfg_attr(not(feature = "icp"), serde(default = "default_temp_store"))]
     pub(crate) include_temp_doc_store: Arc<AtomicBool>,
 }
+
+impl<'de> Deserialize<'de> for InnerSegmentMeta {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where D: serde::Deserializer<'de> {
+        use serde::de::Visitor;
+
+        #[derive(Deserialize)]
+        #[serde(field_identifier, rename_all = "snake_case")]
+        enum Field {
+            SegmentId,
+            MaxDoc,
+            Deletes,
+            IncludeTempDocStore,
+        }
+        struct InnerSegmentMetaVisitor;
+        impl<'de> Visitor<'de> for InnerSegmentMetaVisitor {
+            type Value = InnerSegmentMeta;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("expect struct InnerSegmentMeta.")
+            }
+            fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+            where A: serde::de::MapAccess<'de> {
+                use serde::de::Error;
+
+                let mut segment_id = None;
+                let mut max_doc = None;
+                let mut deletes = None;
+                let mut include_temp_doc_store = None;
+
+                while let Some(key) = map.next_key()? {
+                    match key {
+                        Field::SegmentId => {
+                            if segment_id.is_some() {
+                                return Err(Error::duplicate_field("segment_id"));
+                            }
+                            segment_id = Some(map.next_value()?);
+                        }
+                        Field::MaxDoc => {
+                            if max_doc.is_some() {
+                                return Err(Error::duplicate_field("max_doc"));
+                            }
+                            max_doc = Some(map.next_value()?);
+                        }
+                        Field::Deletes => {
+                            if deletes.is_some() {
+                                return Err(Error::duplicate_field("max_doc"));
+                            }
+                            deletes = Some(map.next_value()?);
+                        }
+                        Field::IncludeTempDocStore => {
+                            if include_temp_doc_store.is_some() {
+                                return Err(Error::duplicate_field("max_doc"));
+                            }
+                            include_temp_doc_store = Some(map.next_value()?);
+                        }
+                    }
+                }
+
+                let segment_id = segment_id.ok_or_else(|| Error::missing_field("segment_id"))?;
+                let max_doc = max_doc.ok_or_else(|| Error::missing_field("max_doc"))?;
+                let deletes = deletes.ok_or_else(|| Error::missing_field("deletes"))?;
+                // let include_temp_doc_store = include_temp_doc_store.ok_or_else(||
+                // serde::de::Error::missing_field("include_temp_doc_store"))?;
+                // We use default value for include_temp_doc_store here.
+                let include_temp_doc_store = include_temp_doc_store.unwrap_or(false);
+                Ok(InnerSegmentMeta {
+                    segment_id,
+                    max_doc,
+                    deletes,
+                    include_temp_doc_store: Arc::new(AtomicBool::new(include_temp_doc_store)),
+                })
+            }
+        }
+        const FIELDS: &'static [&'static str] =
+            &["segment_id", "max_doc", "deletes", "include_temp_doc_store"];
+
+        let res =
+            deserializer.deserialize_struct("InnerSegmentMeta", FIELDS, InnerSegmentMetaVisitor)?;
+        Ok(res)
+    }
+}
+
+#[cfg(feature = "icp")]
+impl candid::CandidType for InnerSegmentMeta {
+    fn _ty() -> candid::types::Type {
+        use candid::field;
+        use candid::types::TypeInner;
+        let res = TypeInner::Record(vec![
+            field! {deletes: Option::<DeleteMeta>::_ty()},
+            field! {segment_id: SegmentId::ty()},
+            field! {include_temp_doc_store: bool::ty()},
+            field! {max_doc: u32::ty()},
+        ]);
+
+        res.into()
+    }
+
+    fn idl_serialize<S>(&self, serializer: S) -> Result<(), S::Error>
+    where S: candid::types::Serializer {
+        use candid::types::Compound;
+        let mut res = serializer.serialize_struct()?;
+
+        res.serialize_element(&self.deletes)?;
+        res.serialize_element(&self.segment_id)?;
+        res.serialize_element(
+            &self
+                .include_temp_doc_store
+                .load(std::sync::atomic::Ordering::SeqCst),
+        )?;
+        res.serialize_element(&self.max_doc)?;
+        Ok(())
+    }
+}
+
+#[cfg(not(feature = "icp"))]
 fn default_temp_store() -> Arc<AtomicBool> {
     Arc::new(AtomicBool::new(false))
 }
@@ -248,6 +464,7 @@ fn is_true(val: &bool) -> bool {
 /// Contains settings which are applied on the whole
 /// index, like presort documents.
 #[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
+#[cfg_attr(feature = "icp", derive(candid::CandidType))]
 pub struct IndexSettings {
     /// Sorts the documents by information
     /// provided in `IndexSortByField`
@@ -265,6 +482,14 @@ pub struct IndexSettings {
     #[serde(default = "default_docstore_blocksize")]
     /// The size of each block that will be compressed and written to disk
     pub docstore_blocksize: usize,
+}
+
+#[cfg(feature = "icp")]
+#[test]
+fn ser_de_should_work_for_index_settings() {
+    let res = IndexSettings::default();
+    let res = candid::encode_one(res).unwrap();
+    let _: IndexSettings = candid::decode_one(&res).unwrap();
 }
 
 /// Must be a function to be compatible with serde defaults
@@ -289,14 +514,28 @@ impl Default for IndexSettings {
 /// in some scenarios, by applying top n
 /// optimizations.
 #[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
+#[cfg_attr(feature = "icp", derive(candid::CandidType))]
 pub struct IndexSortByField {
     /// The field to sort the documents by
     pub field: String,
     /// The order to sort the documents by
     pub order: Order,
 }
+
+#[cfg(feature = "icp")]
+#[test]
+fn ser_de_should_work_for_index_sort_by_field() {
+    let res = IndexSortByField {
+        field: "test_field".into(),
+        order: Order::Asc,
+    };
+    let res = candid::encode_one(res).unwrap();
+    let _: IndexSortByField = candid::decode_one(&res).unwrap();
+}
+
 /// The order to sort by
 #[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
+#[cfg_attr(feature = "icp", derive(candid::CandidType))]
 pub enum Order {
     /// Ascending Order
     Asc,
@@ -322,6 +561,7 @@ impl Order {
 /// * the index `docstamp`
 /// * the schema
 #[derive(Clone, Serialize)]
+#[cfg_attr(feature = "icp", derive(candid::CandidType, candid::Deserialize))]
 pub struct IndexMeta {
     /// `IndexSettings` to configure index options.
     #[serde(default)]
@@ -339,6 +579,17 @@ pub struct IndexMeta {
     /// This payload is entirely unused by tantivy.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub payload: Option<String>,
+}
+
+#[cfg(feature = "icp")]
+#[test]
+fn index_meta_ser_de_for_candid_type_should_work() {
+    let schema = Schema::builder().build();
+    let res = IndexMeta::with_schema(schema);
+
+    let res = candid::encode_one(res).unwrap();
+
+    let _: IndexMeta = candid::decode_one(&res).unwrap();
 }
 
 #[derive(Deserialize, Debug)]

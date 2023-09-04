@@ -15,6 +15,7 @@ use crate::schema::{
 /// - a field type, itself wrapping up options describing
 /// how the field should be indexed.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "icp", derive(candid::CandidType))]
 pub struct FieldEntry {
     name: String,
     #[serde(flatten)]

@@ -9,12 +9,17 @@ use crate::schema::{TextFieldIndexing, TextOptions};
 /// The `JsonObjectOptions` make it possible to
 /// configure how a json object field should be indexed and stored.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "icp", derive(candid::CandidType))]
 pub struct JsonObjectOptions {
     stored: bool,
     // If set to some, int, date, f64 and text will be indexed.
     // Text will use the TextFieldIndexing setting for indexing.
     indexing: Option<TextFieldIndexing>,
     // Store all field as fast fields with an optional tokenizer for text.
+    #[cfg_attr(
+        feature = "icp",
+        serde(deserialize_with = "crate::schema::de::deserialize")
+    )]
     fast: FastFieldTextOptions,
     /// tantivy will generate pathes to the different nodes of the json object
     /// both in:

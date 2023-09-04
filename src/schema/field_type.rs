@@ -137,6 +137,7 @@ impl Type {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "options")]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "icp", derive(candid::CandidType))]
 pub enum FieldType {
     /// String field type configuration
     #[serde(rename = "text")]

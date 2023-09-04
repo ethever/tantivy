@@ -12,6 +12,7 @@ pub type IntOptions = NumericOptions;
 /// Define how an `u64`, `i64`, or `f64` field should be handled by tantivy.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(from = "NumericOptionsDeser")]
+#[cfg_attr(feature = "icp", derive(candid::CandidType))]
 pub struct NumericOptions {
     indexed: bool,
     // This boolean has no effect if the field is not marked as indexed too.

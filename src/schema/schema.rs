@@ -218,6 +218,8 @@ impl SchemaBuilder {
     }
 }
 #[derive(Debug)]
+#[cfg_attr(feature = "icp", derive(candid::CandidType))]
+
 struct InnerSchema {
     fields: Vec<FieldEntry>,
     fields_map: HashMap<String, Field>, // transient
@@ -253,6 +255,33 @@ impl Eq for InnerSchema {}
 #[derive(Clone, Eq, PartialEq, Debug)]
 pub struct Schema(Arc<InnerSchema>);
 
+#[cfg(feature = "icp")]
+#[test]
+fn ser_de_should_work_for_schema() {
+    let res = Schema::builder().build();
+    let res = candid::encode_one(res).unwrap();
+    let _: Schema = candid::decode_one(&res).unwrap();
+}
+
+// We need to manually impl CandidType for Schema as
+// the Deserialize has override by tantivy's implementation.
+#[cfg(feature = "icp")]
+impl candid::CandidType for Schema {
+    fn _ty() -> candid::types::Type {
+        candid::types::TypeInner::Vec(FieldEntry::ty()).into()
+    }
+
+    fn idl_serialize<S>(&self, serializer: S) -> Result<(), S::Error>
+    where S: candid::types::Serializer {
+        use candid::types::Compound;
+        let mut ser = serializer.serialize_vec(self.0.fields.len())?;
+        for e in &self.0.fields {
+            ser.serialize_element(e)?;
+        }
+
+        Ok(())
+    }
+}
 // Returns the position (in byte offsets) of the unescaped '.' in the `field_path`.
 //
 // This function operates directly on bytes (as opposed to codepoint), relying

@@ -8,6 +8,7 @@ use common::BinarySerializable;
 #[derive(
     Copy, Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, serde::Serialize, serde::Deserialize,
 )]
+#[cfg_attr(feature = "icp", derive(candid::CandidType))]
 pub struct Field(u32);
 
 impl Field {

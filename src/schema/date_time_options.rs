@@ -12,6 +12,7 @@ pub const DATE_TIME_PRECISION_INDEXED: DateTimePrecision = DateTimePrecision::Se
 
 /// Defines how DateTime field should be handled by tantivy.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[cfg_attr(feature = "icp", derive(candid::CandidType))]
 pub struct DateOptions {
     indexed: bool,
     // This boolean has no effect if the field is not marked as indexed true.

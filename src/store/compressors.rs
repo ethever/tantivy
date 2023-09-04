@@ -24,6 +24,30 @@ pub enum Compressor {
     Zstd(ZstdCompressor),
 }
 
+#[cfg(feature = "icp")]
+impl candid::CandidType for Compressor {
+    fn _ty() -> candid::types::Type {
+        candid::types::TypeInner::Text.into()
+    }
+
+    fn idl_serialize<S>(&self, serializer: S) -> Result<(), S::Error>
+    where S: candid::types::Serializer {
+        match self {
+            Compressor::None => serializer.serialize_text("none")?,
+            Compressor::Zstd(zstd) => serializer.serialize_text(&zstd.ser_to_string())?,
+        };
+        Ok(())
+    }
+}
+
+#[cfg(feature = "icp")]
+#[test]
+fn ser_de_should_work_for_compressor() {
+    let res = Compressor::None;
+    let res = candid::encode_one(res).unwrap();
+    let _: Compressor = candid::decode_one(&res).unwrap();
+}
+
 impl Serialize for Compressor {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where S: serde::Serializer {
@@ -83,6 +107,7 @@ impl<'de> Deserialize<'de> for Compressor {
 }
 
 #[derive(Clone, Default, Debug, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "icp", derive(candid::CandidType))]
 /// The Zstd compressor, with optional compression level.
 pub struct ZstdCompressor {
     /// The compression level, if unset defaults to zstd::DEFAULT_COMPRESSION_LEVEL = 3

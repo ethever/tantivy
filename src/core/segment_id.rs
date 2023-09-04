@@ -18,8 +18,37 @@ use uuid::Uuid;
 ///
 /// In unit test, for reproducibility, the `SegmentId` are
 /// simply generated in an autoincrement fashion.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Serialize)]
 pub struct SegmentId(Uuid);
+
+impl<'de> Deserialize<'de> for SegmentId {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where D: serde::Deserializer<'de> {
+        let res = String::deserialize(deserializer)?;
+        let res = SegmentId::from_uuid_string(&res).unwrap();
+        Ok(res)
+    }
+}
+
+#[cfg(feature = "icp")]
+impl candid::CandidType for SegmentId {
+    fn _ty() -> candid::types::Type {
+        candid::types::TypeInner::Text.into()
+    }
+
+    fn idl_serialize<S>(&self, serializer: S) -> Result<(), S::Error>
+    where S: candid::types::Serializer {
+        serializer.serialize_text(&self.uuid_string())
+    }
+}
+
+#[cfg(feature = "icp")]
+#[test]
+fn ser_de_for_segment_id_should_work() {
+    let res = SegmentId::generate_random();
+    let res = candid::encode_one(res).unwrap();
+    let _: SegmentId = candid::decode_one(&res).unwrap();
+}
 
 #[cfg(test)]
 static AUTO_INC_COUNTER: Lazy<atomic::AtomicUsize> = Lazy::new(atomic::AtomicUsize::default);
