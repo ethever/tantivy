@@ -1,17 +1,15 @@
 use crate::collector::Count;
+use crate::directory::RamDirectory;
 #[cfg(feature = "mmap")]
 use crate::directory::WatchCallback;
-
-#[cfg(feature = "mmap")]
-use crate::schema::Field;
-#[cfg(feature = "mmap")]
-use crate::IndexReader;
-
-use crate::directory::RamDirectory;
 use crate::indexer::NoMergePolicy;
 use crate::query::TermQuery;
+#[cfg(feature = "mmap")]
+use crate::schema::Field;
 use crate::schema::{IndexRecordOption, Schema, INDEXED, STRING, TEXT};
 use crate::tokenizer::TokenizerManager;
+#[cfg(feature = "mmap")]
+use crate::IndexReader;
 use crate::{
     Directory, Document, Index, IndexBuilder, IndexSettings, ReloadPolicy, SegmentId, Term,
 };
@@ -269,10 +267,10 @@ fn garbage_collect_works_as_intended() -> crate::Result<()> {
         .try_into()?;
     assert_eq!(reader.searcher().num_docs(), 8_000);
 
-    #[cfg(feature = "rayon")]
+    #[cfg(feature = "threads")]
     assert_eq!(reader.searcher().segment_readers().len(), 8);
 
-    #[cfg(not(feature = "rayon"))]
+    #[cfg(not(feature = "threads"))]
     assert_eq!(reader.searcher().segment_readers().len(), 1);
 
     writer.wait_merging_threads()?;
@@ -283,13 +281,13 @@ fn garbage_collect_works_as_intended() -> crate::Result<()> {
     let searcher = reader.searcher();
     assert_eq!(searcher.segment_readers().len(), 1);
     assert_eq!(searcher.num_docs(), 8_000);
-    #[cfg(feature = "rayon")]
+    #[cfg(feature = "threads")]
     assert!(
         mem_right_after_merge_finished < mem_right_after_commit,
         "(mem after merge){mem_right_after_merge_finished} is expected < (mem before \
          merge){mem_right_after_commit}"
     );
-    #[cfg(not(feature = "rayon"))]
+    #[cfg(not(feature = "threads"))]
     assert!(
         mem_right_after_merge_finished == mem_right_after_commit,
         "(mem after merge){mem_right_after_merge_finished} is expected == (mem before \

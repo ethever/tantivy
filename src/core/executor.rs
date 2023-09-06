@@ -14,7 +14,7 @@ use crate::TantivyError;
 pub enum Executor {
     /// Single thread variant of an Executor
     SingleThread,
-    #[cfg(feature = "rayon")]
+    #[cfg(feature = "threads")]
     /// Thread pool variant of an Executor
     ThreadPool(ThreadPool),
 }
@@ -25,7 +25,7 @@ impl Executor {
         Executor::SingleThread
     }
 
-    #[cfg(feature = "rayon")]
+    #[cfg(feature = "threads")]
     /// Creates an Executor that dispatches the tasks in a thread pool.
     pub fn multi_thread(num_threads: usize, prefix: &'static str) -> crate::Result<Executor> {
         let pool = ThreadPoolBuilder::new()
@@ -51,7 +51,7 @@ impl Executor {
     ) -> crate::Result<Vec<R>> {
         match self {
             Executor::SingleThread => args.map(f).collect::<crate::Result<_>>(),
-            #[cfg(feature = "rayon")]
+            #[cfg(feature = "threads")]
             Executor::ThreadPool(pool) => {
                 let args: Vec<A> = args.collect();
                 let num_fruits = args.len();
@@ -116,7 +116,7 @@ mod tests {
             .unwrap();
     }
 
-    #[cfg(feature = "rayon")]
+    #[cfg(feature = "threads")]
     #[test]
     #[should_panic] //< unfortunately the panic message is not propagated
     fn test_panic_propagates_multi_thread() {
@@ -142,7 +142,7 @@ mod tests {
         }
     }
 
-    #[cfg(feature = "rayon")]
+    #[cfg(feature = "threads")]
     #[test]
     fn test_map_multithread() {
         let result: Vec<usize> = Executor::multi_thread(3, "search-test")

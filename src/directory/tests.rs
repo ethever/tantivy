@@ -1,8 +1,10 @@
 use std::io::Write;
 use std::mem;
 use std::path::{Path, PathBuf};
+#[cfg(feature = "threads")]
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering::SeqCst;
-use std::sync::atomic::{AtomicBool, AtomicUsize};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -49,7 +51,7 @@ mod mmap_directory_tests {
         let directory = make_directory();
         super::test_lock_non_blocking(&directory);
     }
-
+    #[cfg(feature = "threads")]
     #[test]
     fn test_lock_blocking() {
         let directory = make_directory();
@@ -104,6 +106,7 @@ mod ram_directory_tests {
         super::test_lock_non_blocking(&directory);
     }
 
+    #[cfg(feature = "threads")]
     #[test]
     fn test_lock_blocking() {
         let directory = make_directory();
@@ -234,6 +237,7 @@ fn test_lock_non_blocking(directory: &dyn Directory) {
     assert!(lock_a_res.is_ok());
 }
 
+#[cfg(feature = "threads")]
 fn test_lock_blocking(directory: &dyn Directory) {
     let lock_a_res = directory.acquire_lock(&Lock {
         filepath: PathBuf::from("a.lock"),

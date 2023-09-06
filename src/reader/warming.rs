@@ -345,6 +345,7 @@ mod tests {
         test_warming(1)
     }
 
+    #[cfg(feature = "threads")]
     #[test]
     fn warming_four_threads() -> crate::Result<()> {
         test_warming(4)

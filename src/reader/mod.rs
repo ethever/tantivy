@@ -29,6 +29,7 @@ pub enum ReloadPolicy {
     /// manually.
     Manual,
     // #[cfg(feature = "threads")]
+    // TODO: we need to remove this variant in the lack of [threads] feature.
     /// The index is reloaded within milliseconds after a new commit is available.
     /// This is made possible by watching changes in the `meta.json` file.
     OnCommit, // TODO add NEAR_REAL_TIME(target_ms)

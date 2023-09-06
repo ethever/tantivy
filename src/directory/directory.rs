@@ -2,13 +2,17 @@ use std::io::Write;
 use std::marker::{Send, Sync};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+#[cfg(feature = "threads")]
+use std::thread;
+#[cfg(feature = "threads")]
 use std::time::Duration;
-use std::{fmt, io, thread};
+use std::{fmt, io};
 
 use crate::directory::directory_lock::Lock;
 use crate::directory::error::{DeleteError, LockError, OpenReadError, OpenWriteError};
 use crate::directory::{FileHandle, FileSlice, WatchCallback, WatchHandle, WritePtr};
 
+#[cfg(feature = "threads")]
 /// Retry the logic of acquiring locks is pretty simple.
 /// We just retry `n` times after a given `duratio`, both
 /// depending on the type of lock.
@@ -16,7 +20,7 @@ struct RetryPolicy {
     num_retries: usize,
     wait_in_ms: u64,
 }
-
+#[cfg(feature = "threads")]
 impl RetryPolicy {
     fn no_retry() -> RetryPolicy {
         RetryPolicy {
@@ -86,6 +90,7 @@ fn try_acquire_lock(
     })))
 }
 
+#[cfg(feature = "threads")]
 fn retry_policy(is_blocking: bool) -> RetryPolicy {
     if is_blocking {
         RetryPolicy {
@@ -189,9 +194,11 @@ pub trait Directory: DirectoryClone + fmt::Debug + Send + Sync + 'static {
 
     /// Acquire a lock in the directory given in the [`Lock`].
     ///
-    /// The method is blocking or not depending on the [`Lock`] object.
+    /// The method is blocking or not depending on the [`Lock`] object
+    /// and whether enable the [threads] feature or not.
     fn acquire_lock(&self, lock: &Lock) -> Result<DirectoryLock, LockError> {
         let box_directory = self.box_clone();
+        #[cfg(feature = "threads")]
         let mut retry_policy = retry_policy(lock.is_blocking);
         loop {
             match try_acquire_lock(&lock.filepath, &*box_directory) {
@@ -199,7 +206,12 @@ pub trait Directory: DirectoryClone + fmt::Debug + Send + Sync + 'static {
                     return Ok(result);
                 }
                 Err(TryAcquireLockError::FileExists) => {
+                    #[cfg(feature = "threads")]
                     if !retry_policy.wait_and_retry() {
+                        return Err(LockError::LockBusy);
+                    }
+                    #[cfg(not(feature = "threads"))]
+                    {
                         return Err(LockError::LockBusy);
                     }
                 }
