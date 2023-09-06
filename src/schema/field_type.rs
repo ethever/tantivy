@@ -3,7 +3,7 @@ use std::str::FromStr;
 
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::Value as JsonValue;
 use thiserror::Error;
 
@@ -134,10 +134,11 @@ impl Type {
 
 /// A `FieldType` describes the type (text, u64) of a field as well as
 /// how it should be handled by tantivy.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(tag = "type", content = "options")]
 #[serde(rename_all = "snake_case")]
-#[cfg_attr(feature = "icp", derive(candid::CandidType))]
+// #[cfg_attr(feature = "icp", derive(candid::CandidType))]
+#[cfg_attr(not(feature = "icp"), derive(serde::Deserialize))]
 pub enum FieldType {
     /// String field type configuration
     #[serde(rename = "text")]
@@ -160,6 +161,301 @@ pub enum FieldType {
     JsonObject(JsonObjectOptions),
     /// IpAddr field
     IpAddr(IpAddrOptions),
+}
+
+#[cfg(feature = "icp")]
+#[test]
+fn ser_de_to_json_should_work_for_field_type() {
+    let res = FieldType::Str(TextOptions::default());
+    let variant1 = serde_json::to_string(&res).unwrap();
+    let variant2 = serde_json::to_string(&FieldType::Bool(NumericOptions::default())).unwrap();
+    println!("{variant1}, {variant2}");
+}
+
+#[cfg(feature = "icp")]
+#[allow(non_camel_case_types)]
+#[derive(candid::CandidType, serde::Deserialize, Debug, Clone)]
+pub enum FieldTypeLabelName {
+    text,
+    u64,
+    i64,
+    f64,
+    bool,
+    date,
+    facet,
+    bytes,
+    json_object,
+    ip_addr,
+}
+
+#[cfg(feature = "icp")]
+#[derive(candid::CandidType, serde::Deserialize, Debug)]
+pub enum FieldTypeOptions {
+    TextOptions(TextOptions),
+    NumericOptions(NumericOptions),
+    DateOptions(DateOptions),
+    FacetOptions(FacetOptions),
+    BytesOptions(BytesOptions),
+    JsonObjectOptions(JsonObjectOptions),
+    IpAddrOptions(IpAddrOptions),
+}
+
+#[cfg(feature = "icp")]
+pub fn construct_field_type_from_label_and_options(
+    label: &FieldTypeLabelName,
+    options: &FieldTypeOptions,
+) -> FieldType {
+    use {FieldTypeLabelName as Type, FieldTypeOptions as Options};
+    let res = match (label, options) {
+        (Type::text, Options::TextOptions(t)) => FieldType::Str(t.to_owned()),
+        (Type::u64, Options::NumericOptions(t)) => FieldType::U64(t.to_owned()),
+        (Type::i64, Options::NumericOptions(t)) => FieldType::I64(t.to_owned()),
+        (Type::f64, Options::NumericOptions(t)) => FieldType::F64(t.to_owned()),
+        (Type::bool, Options::NumericOptions(t)) => FieldType::Bool(t.to_owned()),
+        (Type::date, Options::DateOptions(t)) => FieldType::Date(t.to_owned()),
+        (Type::facet, Options::FacetOptions(t)) => FieldType::Facet(t.to_owned()),
+        (Type::bytes, Options::BytesOptions(t)) => FieldType::Bytes(t.to_owned()),
+        (Type::json_object, Options::JsonObjectOptions(t)) => FieldType::JsonObject(t.to_owned()),
+        (Type::ip_addr, Options::IpAddrOptions(t)) => FieldType::IpAddr(t.to_owned()),
+        _ => unreachable!(),
+    };
+
+    res
+}
+
+#[cfg(feature = "icp")]
+use serde_json::value::RawValue;
+#[cfg(feature = "icp")]
+
+pub fn construct_options_from_raw_value(
+    raw_value: &Box<RawValue>,
+    type_label: &FieldTypeLabelName,
+) -> FieldTypeOptions {
+    use serde::Deserialize;
+    use FieldTypeOptions as Options;
+    let rr = &raw_value.to_string();
+    let der = &mut serde_json::Deserializer::from_str(rr);
+
+    let res = match type_label {
+        FieldTypeLabelName::text => Options::TextOptions(TextOptions::deserialize(der).unwrap()),
+        FieldTypeLabelName::u64 => {
+            Options::NumericOptions(NumericOptions::deserialize(der).unwrap())
+        }
+        FieldTypeLabelName::i64 => {
+            Options::NumericOptions(NumericOptions::deserialize(der).unwrap())
+        }
+        FieldTypeLabelName::f64 => {
+            Options::NumericOptions(NumericOptions::deserialize(der).unwrap())
+        }
+        FieldTypeLabelName::bool => {
+            Options::NumericOptions(NumericOptions::deserialize(der).unwrap())
+        }
+        FieldTypeLabelName::date => Options::DateOptions(DateOptions::deserialize(der).unwrap()),
+        FieldTypeLabelName::facet => Options::FacetOptions(FacetOptions::deserialize(der).unwrap()),
+        FieldTypeLabelName::bytes => Options::BytesOptions(BytesOptions::deserialize(der).unwrap()),
+        FieldTypeLabelName::json_object => {
+            Options::JsonObjectOptions(JsonObjectOptions::deserialize(der).unwrap())
+        }
+        FieldTypeLabelName::ip_addr => {
+            Options::IpAddrOptions(IpAddrOptions::deserialize(der).unwrap())
+        }
+    };
+    res
+}
+
+#[cfg(feature = "icp")]
+pub fn construct_options_from_type_label<'de, A>(
+    map: &mut A,
+    type_label: &FieldTypeLabelName,
+) -> Result<FieldTypeOptions, A::Error>
+where
+    A: serde::de::MapAccess<'de>,
+{
+    use {FieldTypeLabelName as Type, FieldTypeOptions as Options};
+
+    let res = match type_label {
+        Type::text => {
+            let res = map.next_value::<TextOptions>()?;
+            Options::TextOptions(res)
+        }
+        Type::u64 => {
+            let res = map.next_value::<NumericOptions>()?;
+            Options::NumericOptions(res)
+        }
+        Type::i64 => {
+            let res = map.next_value::<NumericOptions>()?;
+            Options::NumericOptions(res)
+        }
+        Type::f64 => {
+            let res = map.next_value::<NumericOptions>()?;
+            Options::NumericOptions(res)
+        }
+        Type::bool => {
+            let res = map.next_value::<NumericOptions>()?;
+            Options::NumericOptions(res)
+        }
+        Type::date => {
+            let res = map.next_value::<DateOptions>()?;
+            Options::DateOptions(res)
+        }
+        Type::facet => {
+            let res = map.next_value::<FacetOptions>()?;
+            Options::FacetOptions(res)
+        }
+        Type::bytes => {
+            let res = map.next_value::<BytesOptions>()?;
+            Options::BytesOptions(res)
+        }
+        Type::json_object => {
+            let res = map.next_value::<JsonObjectOptions>()?;
+            Options::JsonObjectOptions(res)
+        }
+        Type::ip_addr => {
+            let res = map.next_value::<IpAddrOptions>()?;
+            Options::IpAddrOptions(res)
+        }
+    };
+    Ok(res)
+}
+
+#[cfg(feature = "icp")]
+mod candid_type_for_field_type {
+    use super::FieldType;
+    use crate::schema::field_type::{
+        construct_field_type_from_label_and_options, construct_options_from_type_label,
+        FieldTypeLabelName as Type, FieldTypeOptions as Options,
+    };
+
+    impl<'de> serde::Deserialize<'de> for FieldType {
+        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+        where D: serde::Deserializer<'de> {
+            use serde::de::Error;
+            struct FieldTypeVisitor;
+
+            impl<'de> serde::de::Visitor<'de> for FieldTypeVisitor {
+                type Value = FieldType;
+
+                fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                    formatter.write_str("expect FieldType struct.")
+                }
+                fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+                where A: serde::de::MapAccess<'de> {
+                    let mut r#type = None;
+                    let mut options = None;
+                    while let Some(key) = map.next_key::<candid::IDLValue>()? {
+                        match key {
+                            candid::IDLValue::Text(field_name) => match field_name.as_str() {
+                                "type" => {
+                                    r#type = Some(map.next_value::<Type>().unwrap());
+                                }
+                                "options" => {
+                                    let r#type = r#type.clone().ok_or_else(|| {
+                                        Error::custom(
+                                            "The `type` field should appear ahead of `options` \
+                                             field",
+                                        )
+                                    })?;
+
+                                    let res = construct_options_from_type_label(&mut map, &r#type)?;
+
+                                    options = Some(res);
+                                }
+                                "options_candid_type" => {
+                                    let res = map.next_value::<Options>().unwrap();
+                                    options = Some(res);
+                                }
+                                _ => unreachable!(),
+                            },
+                            _ => unreachable!(),
+                        }
+                    }
+                    let r#type = r#type.ok_or_else(|| Error::missing_field("type"))?;
+                    let options = options.ok_or_else(|| Error::missing_field("options"))?;
+
+                    let res = construct_field_type_from_label_and_options(&r#type, &options);
+
+                    Ok(res)
+                }
+            }
+            deserializer.deserialize_any(FieldTypeVisitor)
+        }
+    }
+    impl candid::CandidType for FieldType {
+        fn _ty() -> candid::types::Type {
+            use candid::field;
+            use candid::types::TypeInner;
+            TypeInner::Record(vec![
+                field! {type: Type::ty()},
+                // TODO: FIXME
+                field! {options_candid_type: Options::ty()},
+            ])
+            .into()
+        }
+
+        fn idl_serialize<S>(&self, serializer: S) -> Result<(), S::Error>
+        where S: candid::types::Serializer {
+            use candid::types::Compound;
+
+            let mut ser = serializer.serialize_struct()?;
+            match self {
+                FieldType::Str(t) => {
+                    ser.serialize_element(&Type::text)?;
+                    ser.serialize_element(&Options::TextOptions(t.to_owned()))?;
+                }
+                FieldType::U64(t) => {
+                    ser.serialize_element(&Type::u64)?;
+                    ser.serialize_element(&Options::NumericOptions(t.to_owned()))?;
+                }
+                FieldType::I64(t) => {
+                    ser.serialize_element(&Type::i64)?;
+                    ser.serialize_element(&Options::NumericOptions(t.to_owned()))?;
+                }
+                FieldType::F64(t) => {
+                    ser.serialize_element(&Type::f64)?;
+                    ser.serialize_element(&Options::NumericOptions(t.to_owned()))?;
+                }
+                FieldType::Bool(t) => {
+                    ser.serialize_element(&Type::bool)?;
+                    ser.serialize_element(&Options::NumericOptions(t.to_owned()))?;
+                }
+                FieldType::Date(t) => {
+                    ser.serialize_element(&Type::date)?;
+                    ser.serialize_element(&Options::DateOptions(t.to_owned()))?;
+                }
+                FieldType::Facet(t) => {
+                    ser.serialize_element(&Type::facet)?;
+                    ser.serialize_element(&Options::FacetOptions(t.to_owned()))?;
+                }
+                FieldType::Bytes(t) => {
+                    ser.serialize_element(&Type::bytes)?;
+                    ser.serialize_element(&Options::BytesOptions(t.to_owned()))?;
+                }
+                FieldType::JsonObject(t) => {
+                    ser.serialize_element(&Type::json_object)?;
+                    ser.serialize_element(&Options::JsonObjectOptions(t.to_owned()))?;
+                }
+                FieldType::IpAddr(t) => {
+                    ser.serialize_element(&Type::ip_addr)?;
+                    ser.serialize_element(&Options::IpAddrOptions(t.to_owned()))?;
+                }
+            };
+            Ok(())
+        }
+    }
+}
+
+/// We manually impl Candidtype for FieldType here as
+/// currenlt the candid crate does not support
+/// #[serde(tag = "type", content = "options")] and
+/// #[serde(rename_all = "snake_case")].
+// #[cfg(feature = "icp")]
+
+#[cfg(feature = "icp")]
+#[test]
+fn ser_de_should_work_for_field_type() {
+    let res = FieldType::Str(TextOptions::default());
+    let res = candid::encode_one(res).unwrap();
+    let _: FieldType = candid::decode_one(&res).unwrap();
 }
 
 impl FieldType {

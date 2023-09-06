@@ -49,6 +49,13 @@ pub struct JsonObjectOptions {
     expand_dots_enabled: bool,
 }
 
+#[cfg(feature = "icp")]
+#[test]
+fn ser_de_should_work_for_json_object_options() {
+    let res = candid::encode_one(JsonObjectOptions::default()).unwrap();
+    let _: JsonObjectOptions = candid::decode_one(&res).unwrap();
+}
+
 impl JsonObjectOptions {
     /// Returns `true` if the json object should be stored.
     pub fn is_stored(&self) -> bool {

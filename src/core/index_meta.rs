@@ -589,7 +589,8 @@ fn index_meta_ser_de_for_candid_type_should_work() {
 
     let res = candid::encode_one(res).unwrap();
 
-    let _: IndexMeta = candid::decode_one(&res).unwrap();
+    let index_meta: IndexMeta = candid::decode_one(&res).unwrap();
+    println!("{:?}", serde_json::to_string(&index_meta));
 }
 
 #[derive(Deserialize, Debug)]

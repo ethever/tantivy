@@ -26,6 +26,13 @@ pub struct DateOptions {
     precision: DateTimePrecision,
 }
 
+#[cfg(feature = "icp")]
+#[test]
+fn ser_de_should_work_for_date_options() {
+    let res = candid::encode_one(DateOptions::default()).unwrap();
+    let _: DateOptions = candid::decode_one(&res).unwrap();
+}
+
 impl DateOptions {
     /// Returns true iff the value is stored.
     pub fn is_stored(&self) -> bool {

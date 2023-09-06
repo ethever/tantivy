@@ -12,7 +12,6 @@ pub type IntOptions = NumericOptions;
 /// Define how an `u64`, `i64`, or `f64` field should be handled by tantivy.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(from = "NumericOptionsDeser")]
-#[cfg_attr(feature = "icp", derive(candid::CandidType))]
 pub struct NumericOptions {
     indexed: bool,
     // This boolean has no effect if the field is not marked as indexed too.
@@ -21,6 +20,45 @@ pub struct NumericOptions {
     stored: bool,
     #[serde(skip_serializing_if = "is_false")]
     coerce: bool,
+}
+
+// We must manually impl [`CandidType`] for NumericOptions
+// as currently the candid crate does not support
+// #[serde(from = "NumericOptionsDeser")]
+#[cfg(feature = "icp")]
+impl candid::CandidType for NumericOptions {
+    fn _ty() -> candid::types::Type {
+        use candid::field;
+        candid::types::TypeInner::Record(vec![
+            field! {stored: bool::ty()},
+            field! {fast: bool::ty()},
+            field! {coerce: bool::ty()},
+            field! {fieldnorms: Option::<bool>::ty()},
+            field! {indexed: bool::ty()},
+        ])
+        .into()
+    }
+
+    fn idl_serialize<S>(&self, serializer: S) -> Result<(), S::Error>
+    where S: candid::types::Serializer {
+        use candid::types::Compound;
+        let mut ser = serializer.serialize_struct().unwrap();
+        ser.serialize_element(&self.stored).unwrap();
+        ser.serialize_element(&self.fast).unwrap();
+        ser.serialize_element(&self.coerce).unwrap();
+        // FIXME: a small hack...
+        ser.serialize_element(&Some(self.fieldnorms)).unwrap();
+        ser.serialize_element(&self.indexed).unwrap();
+        Ok(())
+    }
+}
+
+#[cfg(feature = "icp")]
+#[test]
+fn ser_de_should_work_for_numeric_options() {
+    let res = NumericOptions::default();
+    let res = candid::encode_one(res).unwrap();
+    let _: NumericOptions = candid::decode_one(&res).unwrap();
 }
 
 fn is_false(val: &bool) -> bool {

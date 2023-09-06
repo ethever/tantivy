@@ -218,7 +218,6 @@ impl SchemaBuilder {
     }
 }
 #[derive(Debug)]
-#[cfg_attr(feature = "icp", derive(candid::CandidType))]
 
 struct InnerSchema {
     fields: Vec<FieldEntry>,
@@ -258,9 +257,24 @@ pub struct Schema(Arc<InnerSchema>);
 #[cfg(feature = "icp")]
 #[test]
 fn ser_de_should_work_for_schema() {
-    let res = Schema::builder().build();
+    let mut res = Schema::builder();
+    res.add_text_field("text_field_1", TextOptions::default());
+    res.add_bool_field(
+        "bool_field1",
+        NumericOptions::default().set_fast().set_indexed(),
+    );
+    res.add_date_field(
+        "date_field_1",
+        DateOptions::default()
+            .set_fast()
+            .set_fieldnorm()
+            .set_indexed(),
+    );
+    res.add_facet_field("facet_field_1", FacetOptions::default().set_stored());
+    let res = res.build();
     let res = candid::encode_one(res).unwrap();
-    let _: Schema = candid::decode_one(&res).unwrap();
+    let schema: Schema = candid::decode_one(&res).unwrap();
+    println!("{schema:?}");
 }
 
 // We need to manually impl CandidType for Schema as
@@ -274,9 +288,9 @@ impl candid::CandidType for Schema {
     fn idl_serialize<S>(&self, serializer: S) -> Result<(), S::Error>
     where S: candid::types::Serializer {
         use candid::types::Compound;
-        let mut ser = serializer.serialize_vec(self.0.fields.len())?;
+        let mut ser = serializer.serialize_vec(self.0.fields.len()).unwrap();
         for e in &self.0.fields {
-            ser.serialize_element(e)?;
+            ser.serialize_element(e).unwrap();
         }
 
         Ok(())
@@ -490,6 +504,10 @@ impl<'de> Deserialize<'de> for Schema {
 
             fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
             where A: SeqAccess<'de> {
+                // panic!(
+                //     "testsdsds.....len:{:?}",
+                //     seq.next_element::<FieldEntry>().unwrap()
+                // );
                 let mut schema = SchemaBuilder {
                     fields: Vec::with_capacity(seq.size_hint().unwrap_or(0)),
                     fields_map: HashMap::with_capacity(seq.size_hint().unwrap_or(0)),
@@ -502,7 +520,6 @@ impl<'de> Deserialize<'de> for Schema {
                 Ok(schema.build())
             }
         }
-
         deserializer.deserialize_seq(SchemaVisitor)
     }
 }

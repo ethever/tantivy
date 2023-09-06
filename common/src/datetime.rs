@@ -8,7 +8,7 @@ use time::{OffsetDateTime, PrimitiveDateTime, UtcOffset};
 
 /// Precision with which datetimes are truncated when stored in fast fields. This setting is only
 /// relevant for fast fields. In the docstore, datetimes are always saved with nanosecond precision.
-#[cfg_attr(feature = "icp", derive(candid::CandidType))]
+// #[cfg_attr(feature = "icp", derive(candid::CandidType))]
 #[derive(
     Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Default,
 )]
@@ -23,6 +23,42 @@ pub enum DateTimePrecision {
     Microseconds,
     /// Nanosecond precision.
     Nanoseconds,
+}
+
+// We manually impl Candid for DateTimePrecision here
+// as currently the candid crate does not yet support
+// #[serde(rename_all = "lowercase")].
+#[cfg(feature = "icp")]
+impl candid::CandidType for DateTimePrecision {
+    fn _ty() -> candid::types::Type {
+        use candid::field;
+        use candid::types::TypeInner;
+        candid::types::TypeInner::Variant(vec![
+            field! {nanoseconds: TypeInner::Null.into()},
+            field! {microseconds: TypeInner::Null.into()},
+            field! {seconds: TypeInner::Null.into()},
+            field! {milliseconds: TypeInner::Null.into()},
+        ])
+        .into()
+    }
+
+    fn idl_serialize<S>(&self, serializer: S) -> Result<(), S::Error>
+    where S: candid::types::Serializer {
+        serializer.serialize_variant(match self {
+            DateTimePrecision::Seconds => 2,
+            DateTimePrecision::Milliseconds => 3,
+            DateTimePrecision::Microseconds => 1,
+            DateTimePrecision::Nanoseconds => 0,
+        })?;
+        Ok(())
+    }
+}
+
+#[cfg(feature = "icp")]
+#[test]
+fn ser_de_should_work_for_date_time_precision() {
+    let res = candid::encode_one(DateTimePrecision::default()).unwrap();
+    let _: DateTimePrecision = candid::decode_one(&res).unwrap();
 }
 
 #[deprecated(since = "0.20.0", note = "Use `DateTimePrecision` instead")]

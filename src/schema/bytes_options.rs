@@ -6,12 +6,48 @@ use super::flags::{FastFlag, IndexedFlag, SchemaFlagList, StoredFlag};
 /// Define how a bytes field should be handled by tantivy.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(from = "BytesOptionsDeser")]
-#[cfg_attr(feature = "icp", derive(candid::CandidType))]
 pub struct BytesOptions {
     indexed: bool,
     fieldnorms: bool,
     fast: bool,
     stored: bool,
+}
+
+#[cfg(feature = "icp")]
+#[test]
+fn ser_de_should_work_for_bytes_options() {
+    let res = candid::encode_one(BytesOptions::default()).unwrap();
+    let _: BytesOptions = candid::decode_one(&res).unwrap();
+}
+
+/// We manually impl CandidType for BytesOptions as
+/// currently the candid crate does not supports
+/// #[serde(from = "BytesOptionsDeser")].
+#[cfg(feature = "icp")]
+impl candid::CandidType for BytesOptions {
+    fn _ty() -> candid::types::Type {
+        use candid::field;
+        use candid::types::TypeInner;
+        TypeInner::Record(vec![
+            field! {stored: bool::ty()},
+            field! {fast: bool::ty()},
+            field! {fieldnorms: Option::<bool>::ty()},
+            field! {indexed: bool::ty()},
+        ])
+        .into()
+    }
+
+    fn idl_serialize<S>(&self, serializer: S) -> Result<(), S::Error>
+    where S: candid::types::Serializer {
+        use candid::types::Compound;
+        let mut ser = serializer.serialize_struct()?;
+        ser.serialize_element(&self.stored)?;
+        ser.serialize_element(&self.fast)?;
+        ser.serialize_element(&Some(self.fieldnorms))?;
+        ser.serialize_element(&self.indexed)?;
+
+        Ok(())
+    }
 }
 
 /// For backward compatibility we add an intermediary to interpret the

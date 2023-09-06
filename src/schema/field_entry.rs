@@ -1,4 +1,4 @@
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 use super::ip_options::IpAddrOptions;
 use crate::schema::bytes_options::BytesOptions;
@@ -14,12 +14,167 @@ use crate::schema::{
 /// - a field name
 /// - a field type, itself wrapping up options describing
 /// how the field should be indexed.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[cfg_attr(feature = "icp", derive(candid::CandidType))]
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[cfg_attr(not(feature = "icp"), derive(serde::Deserialize))]
 pub struct FieldEntry {
     name: String,
     #[serde(flatten)]
     field_type: FieldType,
+}
+
+#[cfg(feature = "icp")]
+/// We need manually to implement [`candid::CandidType`] for
+/// [`FieldEntry`] as currently the candid crate does
+/// not support #[serde(flatten)].
+mod candid_type_for_field_entry {
+    use candid::types::{Compound, TypeInner};
+    use candid::{field, IDLValue};
+    use serde::de::Visitor;
+    use serde::Deserialize;
+    use serde_json::value::RawValue;
+
+    use crate::schema::field_type::{
+        construct_field_type_from_label_and_options, construct_options_from_raw_value,
+        construct_options_from_type_label, FieldTypeLabelName, FieldTypeOptions,
+    };
+    use crate::schema::{FieldEntry, FieldType};
+
+    #[allow(non_camel_case_types)]
+    #[derive(Deserialize, Debug, Clone)]
+    enum Key {
+        name,
+        field_type,
+        r#type,
+        options,
+    }
+
+    // We need to manually impl serde::Deserialize for FieldEntry
+    impl<'de> Deserialize<'de> for FieldEntry {
+        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+        where D: serde::Deserializer<'de> {
+            struct FieldEntryVisitor;
+
+            impl<'de> Visitor<'de> for FieldEntryVisitor {
+                type Value = FieldEntry;
+
+                fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                    formatter.write_str("expect FieldEntry struct.")
+                }
+
+                fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+                where A: serde::de::MapAccess<'de> {
+                    use serde::de::Error;
+
+                    #[derive(Debug, Default)]
+                    struct State {
+                        name: Option<String>,
+                        field_type: Option<FieldType>,
+                        r#type: Option<FieldTypeLabelName>,
+                        options: Option<FieldTypeOptions>,
+                        stack: Vec<Box<RawValue>>,
+                    }
+                    fn task<'de, A>(map: &mut A, state: &mut State) -> Result<(), A::Error>
+                    where A: serde::de::MapAccess<'de> {
+                        while let Some(IDLValue::Text(key)) = map.next_key::<IDLValue>()? {
+                            match key.as_str() {
+                                "name" => {
+                                    state.name = Some(map.next_value::<String>()?);
+                                }
+                                "field_type" => {
+                                    state.field_type = Some(map.next_value::<FieldType>()?);
+                                }
+                                "type" => {
+                                    let type_label = map.next_value::<FieldTypeLabelName>()?;
+                                    if let Some(res) = state.stack.pop() {
+                                        let res =
+                                            construct_options_from_raw_value(&res, &type_label);
+                                        state.options = Some(res);
+                                    }
+                                    state.r#type = Some(type_label);
+                                }
+                                "options" => {
+                                    match state.r#type.clone() {
+                                        Some(type_label) => {
+                                            let res = construct_options_from_type_label(
+                                                map,
+                                                &type_label,
+                                            )?;
+                                            state.options = Some(res);
+                                        }
+                                        None => {
+                                            let res = map.next_value::<Box<RawValue>>().unwrap();
+                                            state.stack.push(res.clone());
+
+                                            // We need the type label to construct
+                                            // [`FieldTypeOptions`]
+                                            // recursive to find that.
+                                            // TODO: add a recursive stack limit here.
+                                            task(map, state)?;
+                                        }
+                                    }
+                                }
+                                _ => unreachable!(),
+                            }
+                        }
+                        Ok(())
+                    }
+
+                    let mut state = State::default();
+                    task(&mut map, &mut state)?;
+
+                    let res = match (state.name, state.field_type, state.options) {
+                        (Some(name), None, Some(options)) => {
+                            let field_type = construct_field_type_from_label_and_options(
+                                &state
+                                    .r#type
+                                    .clone()
+                                    .ok_or_else(|| Error::custom("Lack `type` field"))?,
+                                &options,
+                            );
+                            Self::Value { name, field_type }
+                        }
+                        (Some(name), Some(field_type), None) => Self::Value { name, field_type },
+                        (Some(_), None, None) => {
+                            unreachable!("expect at least `field_type` field or `options` field.");
+                        }
+                        (Some(_), Some(_), Some(_)) => unreachable!(
+                            "We can not handle `type` field and `options` field at the same time."
+                        ),
+                        _ => unreachable!("name field not found."),
+                    };
+
+                    Ok(res)
+                }
+            }
+            deserializer.deserialize_any(FieldEntryVisitor)
+        }
+    }
+
+    impl candid::CandidType for FieldEntry {
+        fn _ty() -> candid::types::Type {
+            TypeInner::Record(vec![
+                field! {field_type: FieldType::ty()},
+                field! {name: String::ty()},
+            ])
+            .into()
+        }
+
+        fn idl_serialize<S>(&self, serializer: S) -> Result<(), S::Error>
+        where S: candid::types::Serializer {
+            let mut ser = serializer.serialize_struct()?;
+            ser.serialize_element(&self.field_type)?;
+            ser.serialize_element(&self.name)?;
+            Ok(())
+        }
+    }
+}
+
+#[cfg(feature = "icp")]
+#[test]
+fn ser_de_should_work_for_field_entry() {
+    let res = FieldEntry::new("field_name".into(), FieldType::Str(TextOptions::default()));
+    let res = candid::encode_one(res).unwrap();
+    let _: FieldEntry = candid::decode_one(&res).unwrap();
 }
 
 impl FieldEntry {
