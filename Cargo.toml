@@ -78,6 +78,9 @@ futures-util = { version = "0.3.28", optional = true }
 getrandom = { version = "0.2", features = ["custom"] }
 ic-cdk = { version = "0.10.0", optional = true }
 candid = { version = "0.9.5", optional = true }
+canister_fs = { path = "../canister_fs", optional = true }
+ic-stable-structures = { version = "0.5.6", optional = true }
+send_wrapper = { version = "0.6.0", optional = true }
 
 [target.'cfg(windows)'.dependencies]
 winapi = "0.3.9"
@@ -100,6 +103,7 @@ futures = "0.3.21"
 paste = "1.0.11"
 more-asserts = "0.3.1"
 rand_distr = "0.4.3"
+lazy_static = "1.4.0"
 
 [target.'cfg(not(windows))'.dev-dependencies]
 criterion = "0.5"
@@ -131,9 +135,15 @@ default = ["icp", "stopwords", "tempfile", "zstd-compression"]
 threads = ["rayon"]
 rayon = ["dep:rayon"]
 # default = ["mmap", "stopwords", "lz4-compression"]
-# mmap = ["fs4", "tempfile", "memmap2"]
+mmap = ["fs4", "tempfile", "memmap2"]
 stopwords = []
-icp = ["dep:ic-cdk", "dep:candid"]
+icp = [
+    "dep:ic-cdk",
+    "dep:candid",
+    "dep:canister_fs",
+    "dep:ic-stable-structures",
+    "dep:send_wrapper",
+]
 
 measure = ["dep:measure_time"]
 

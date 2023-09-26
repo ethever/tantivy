@@ -12,10 +12,12 @@ use memmap2::Mmap;
 use serde::{Deserialize, Serialize};
 use tempfile::TempDir;
 
+#[cfg(feature = "threads")]
 use crate::core::META_FILEPATH;
 use crate::directory::error::{
     DeleteError, LockError, OpenDirectoryError, OpenReadError, OpenWriteError,
 };
+#[cfg(feature = "threads")]
 use crate::directory::file_watcher::FileWatcher;
 use crate::directory::{
     AntiCallToken, Directory, DirectoryLock, FileHandle, Lock, OwnedBytes, TerminatingWrite,
@@ -169,6 +171,7 @@ struct MmapDirectoryInner {
     root_path: PathBuf,
     mmap_cache: RwLock<MmapCache>,
     _temp_directory: Option<TempDir>,
+    #[cfg(feature = "threads")]
     watcher: FileWatcher,
 }
 
@@ -177,11 +180,13 @@ impl MmapDirectoryInner {
         MmapDirectoryInner {
             mmap_cache: RwLock::new(MmapCache::new()),
             _temp_directory: temp_directory,
+            #[cfg(feature = "threads")]
             watcher: FileWatcher::new(&root_path.join(*META_FILEPATH)),
             root_path,
         }
     }
 
+    #[cfg(feature = "threads")]
     fn watch(&self, callback: WatchCallback) -> WatchHandle {
         self.watcher.watch(callback)
     }
@@ -498,8 +503,11 @@ impl Directory for MmapDirectory {
             _file: file,
         })))
     }
-
+    #[allow(unused_variables)]
     fn watch(&self, watch_callback: WatchCallback) -> crate::Result<WatchHandle> {
+        #[cfg(not(feature = "threads"))]
+        todo!();
+        #[cfg(feature = "threads")]
         Ok(self.inner.watch(watch_callback))
     }
 

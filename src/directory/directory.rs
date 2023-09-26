@@ -111,6 +111,8 @@ fn retry_policy(is_blocking: bool) -> RetryPolicy {
 /// should be your default choice.
 /// - The [`RamDirectory`][crate::directory::RamDirectory], which
 /// should be used mostly for tests.
+/// - The [`CanisterDirectory`][crate::directory::CanisterDirectory], this
+/// should be used in the canister.
 pub trait Directory: DirectoryClone + fmt::Debug + Send + Sync + 'static {
     /// Opens a file and returns a boxed `FileHandle`.
     ///

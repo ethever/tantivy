@@ -981,6 +981,135 @@ impl Drop for IndexWriter {
     }
 }
 
+#[cfg(feature = "icp")]
+#[cfg(test)]
+mod tests_icp {
+    use std::collections::{HashMap, HashSet};
+    use std::io::Write;
+    use std::net::Ipv6Addr;
+    use std::path::Path;
+
+    use canister_fs::filesystem_memory::{FileSystem, FileSystemMemory};
+    use canister_fs::time_provider::TimeProvider;
+    use canister_fs::{format_volume, FormatVolumeOptions, FsOptions, StdIoWrapper};
+    use columnar::{Cardinality, Column, MonotonicallyMappableToU128};
+    use common::HasLen;
+    use ic_stable_structures::memory_manager::{MemoryId, MemoryManager};
+    use ic_stable_structures::DefaultMemoryImpl;
+    use itertools::Itertools;
+    use once_cell::sync::Lazy;
+    use proptest::prop_oneof;
+    use proptest::strategy::Strategy;
+    use send_wrapper::SendWrapper;
+
+    use super::super::operation::UserOperation;
+    use crate::collector::TopDocs;
+    use crate::directory::error::LockError;
+    use crate::indexer::NoMergePolicy;
+    use crate::query::{BooleanQuery, Occur, Query, QueryParser, TermQuery};
+    use crate::schema::{
+        self, Facet, FacetOptions, IndexRecordOption, IpAddrOptions, NumericOptions, Schema,
+        TextFieldIndexing, TextOptions, FAST, INDEXED, STORED, STRING, TEXT,
+    };
+    use crate::store::DOCSTORE_CACHE_CAPACITY;
+    use crate::{
+        DateTime, Directory, DocAddress, Index, IndexSettings, IndexSortByField, Order,
+        ReloadPolicy, Term,
+    };
+
+    static DIRECTORY: Lazy<SendWrapper<FileSystem>> = Lazy::new(|| {
+        let memory_manager = MemoryManager::init(DefaultMemoryImpl::default());
+
+        let memory = memory_manager.get(MemoryId::new(0));
+
+        let memory = FileSystemMemory::new(memory);
+
+        let options = FormatVolumeOptions::new();
+        format_volume(&mut StdIoWrapper::from(memory.clone()), options).unwrap();
+
+        let options = FsOptions::new()
+            .time_provider(TimeProvider::new())
+            .update_accessed_date(true);
+
+        let res = FileSystem::new(memory, options).unwrap();
+        SendWrapper::new(res)
+    });
+
+    #[test]
+    fn test_operations_group_icp() {
+        {
+            // an operations group with 2 items should cause 3 opstamps 0, 1, and 2.
+            let mut schema_builder = schema::Schema::builder();
+            let text_field = schema_builder.add_text_field("text", TEXT);
+            let index = Index::create_in_stable_memory(schema_builder.build(), &DIRECTORY);
+            let index_writer = index.writer_for_tests().unwrap();
+            let operations = vec![
+                UserOperation::Add(doc!(text_field=>"a")),
+                UserOperation::Add(doc!(text_field=>"b")),
+            ];
+            let batch_opstamp1 = index_writer.run(operations).unwrap();
+            assert_eq!(batch_opstamp1, 2u64);
+        }
+
+        let root_dir = &DIRECTORY.root_dir();
+        let res = root_dir
+            .iter()
+            .map(|entry| entry.unwrap().file_name())
+            .collect::<Vec<_>>();
+        println!("{res:?}");
+    }
+    #[test]
+    fn test_canister_directory() {
+        let mut schema_builder = schema::Schema::builder();
+        let text_field = schema_builder.add_text_field("text", TEXT);
+        let body_field = schema_builder.add_text_field("title", TEXT);
+        let index = Index::create_in_stable_memory(schema_builder.build(), &DIRECTORY);
+
+        let mut index_writer = index.writer_canister(15_000_000).unwrap();
+        for _ in 0..1000 {
+            index_writer
+                .add_document(doc!(text_field => "hadhsahdsahd",  body_field => "body1"))
+                .unwrap();
+            index_writer
+                .add_document(doc!(text_field => "hadhsahdsahd2", body_field => "body2"))
+                .unwrap();
+            index_writer
+                .add_document(doc!(text_field => "hadhsahdsahd3", body_field => "body3"))
+                .unwrap();
+            index_writer
+                .add_document(doc!(text_field => "hadhsahdsahd4", body_field => "body4"))
+                .unwrap();
+        }
+        index_writer.commit().unwrap();
+
+        let reader = index
+            .reader_builder()
+            .reload_policy(ReloadPolicy::Manual)
+            .try_into()
+            .unwrap();
+        reader.reload().unwrap();
+        let searcher = reader.searcher();
+        let len = searcher.num_docs();
+
+        assert!(len >= 4u64);
+        let reader = index
+            .reader_builder()
+            .reload_policy(ReloadPolicy::Manual)
+            .try_into()
+            .unwrap();
+        reader.reload().unwrap();
+        let searcher = reader.searcher();
+
+        assert_eq!(searcher.num_docs(), 4000);
+
+        let root_dir = &DIRECTORY.root_dir();
+        let res = root_dir
+            .iter()
+            .map(|entry| entry.unwrap().file_name())
+            .collect::<Vec<_>>();
+        println!("{res:?}");
+    }
+}
 #[cfg(test)]
 mod tests {
     use std::collections::{HashMap, HashSet};
@@ -1076,52 +1205,6 @@ mod tests {
                 assert!(searcher.num_docs() >= 1);
             });
         }
-    }
-
-    #[cfg(feature = "icp")]
-    #[test]
-    fn test_canister() {
-        let mut schema_builder = schema::Schema::builder();
-        let text_field = schema_builder.add_text_field("text", TEXT);
-        let body_field = schema_builder.add_text_field("title", TEXT);
-        let index = Index::create_in_ram(schema_builder.build());
-
-        for _ in 0..1000 {
-            let mut index_writer = index.writer_canister(15_000_000).unwrap();
-            index_writer
-                .add_document(doc!(text_field => "hadhsahdsahd",  body_field => "body1"))
-                .unwrap();
-            index_writer
-                .add_document(doc!(text_field => "hadhsahdsahd2", body_field => "body2"))
-                .unwrap();
-            index_writer
-                .add_document(doc!(text_field => "hadhsahdsahd3", body_field => "body3"))
-                .unwrap();
-            index_writer
-                .add_document(doc!(text_field => "hadhsahdsahd4", body_field => "body4"))
-                .unwrap();
-
-            assert!(index_writer.commit().is_ok());
-            let reader = index
-                .reader_builder()
-                .reload_policy(ReloadPolicy::Manual)
-                .try_into()
-                .unwrap();
-            reader.reload().unwrap();
-            let searcher = reader.searcher();
-            let len = searcher.num_docs();
-
-            assert!(len >= 4u64);
-        }
-        let reader = index
-            .reader_builder()
-            .reload_policy(ReloadPolicy::Manual)
-            .try_into()
-            .unwrap();
-        reader.reload().unwrap();
-        let searcher = reader.searcher();
-
-        assert_eq!(searcher.num_docs(), 4000);
     }
 
     #[cfg(feature = "icp")]
@@ -2524,9 +2607,7 @@ mod tests {
                 assert!(is_sorted(&ids_in_segment));
 
                 fn is_sorted<T>(data: &[T]) -> bool
-                where
-                    T: Ord,
-                {
+                where T: Ord {
                     data.windows(2).all(|w| w[0] <= w[1])
                 }
             }

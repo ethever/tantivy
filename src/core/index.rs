@@ -5,6 +5,9 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+#[cfg(feature = "icp")]
+use canister_fs::filesystem_memory::FileSystem;
+
 use super::segment::Segment;
 use super::IndexSettings;
 use crate::core::single_segment_index_writer::SingleSegmentIndexWriter;
@@ -149,6 +152,17 @@ impl IndexBuilder {
     pub fn fast_field_tokenizers(mut self, tokenizers: TokenizerManager) -> Self {
         self.fast_field_tokenizer_manager = tokenizers;
         self
+    }
+
+    #[cfg(feature = "icp")]
+    /// Creates a new index using the [`CanisterDirectory`].
+    ///
+    /// The index will be allocated in canister's stable memory.
+    pub fn create_in_stable_memory(self, fs: &'static FileSystem) -> Result<Index, TantivyError> {
+        use crate::directory::CanisterDirectory;
+
+        let canister_directory = CanisterDirectory::new(fs);
+        self.create(canister_directory)
     }
 
     /// Creates a new index using the [`RamDirectory`].
@@ -336,6 +350,17 @@ impl Index {
     /// for instances like unit test or temporary in memory index.
     pub fn create_in_ram(schema: Schema) -> Index {
         IndexBuilder::new().schema(schema).create_in_ram().unwrap()
+    }
+
+    #[cfg(feature = "icp")]
+    /// Creates a new index using the [`CanisterDirectory`].
+    ///
+    /// The index will be allocated in canister's stable memory.
+    pub fn create_in_stable_memory(schema: Schema, fs: &'static FileSystem) -> Index {
+        IndexBuilder::new()
+            .schema(schema)
+            .create_in_stable_memory(fs)
+            .unwrap()
     }
 
     /// Creates a new index in a given filepath.

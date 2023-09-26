@@ -3,6 +3,8 @@
 #[cfg(feature = "mmap")]
 mod mmap_directory;
 
+#[cfg(feature = "icp")]
+mod canister_directory;
 mod directory;
 mod directory_lock;
 #[cfg(feature = "threads")]
@@ -23,6 +25,8 @@ use std::path::PathBuf;
 pub use common::file_slice::{FileHandle, FileSlice};
 pub use common::{AntiCallToken, OwnedBytes, TerminatingWrite};
 
+#[cfg(feature = "icp")]
+pub use self::canister_directory::CanisterDirectory;
 pub(crate) use self::composite_file::{CompositeFile, CompositeWrite};
 pub use self::directory::{Directory, DirectoryClone, DirectoryLock};
 pub use self::directory_lock::{Lock, INDEX_WRITER_LOCK, META_LOCK};
