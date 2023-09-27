@@ -77,8 +77,8 @@ sketches-ddsketch = { version = "0.2.1", features = ["use_serde"] }
 futures-util = { version = "0.3.28", optional = true }
 
 getrandom = { version = "0.2", features = ["custom"] }
-ic-cdk = { version = "0.10.0", optional = true }
-candid = { version = "0.9.5", optional = true }
+ic-cdk = { version = "*", optional = true }
+candid = { version = "*", optional = true }
 canister_fs = { path = "../canister_fs", optional = true }
 ic-stable-structures = { version = "0.5.6", optional = true }
 send_wrapper = { version = "0.6.0", optional = true }
@@ -132,11 +132,11 @@ debug-assertions = true
 overflow-checks = true
 
 [features]
-default = ["icp", "stopwords", "tempfile", "zstd-compression"]
+default = ["icp", "stopwords", "zstd-compression"]
 threads = ["rayon"]
 rayon = ["dep:rayon"]
 # default = ["mmap", "stopwords", "lz4-compression"]
-mmap = ["fs4", "tempfile", "memmap2"]
+mmap = ["fs4", "dep:tempfile", "dep:memmap2"]
 stopwords = []
 icp = [
     "dep:ic-cdk",
