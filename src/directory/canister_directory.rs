@@ -299,26 +299,25 @@ mod tests {
     use super::{CanisterDirectory, FileWrapper};
     use crate::Directory;
 
-    static DIRECTORY: Lazy<SendWrapper<FileSystem>> = Lazy::new(|| {
-        let memory_manager = MemoryManager::init(DefaultMemoryImpl::default());
-
-        let memory = memory_manager.get(MemoryId::new(0));
-
-        let memory = FileSystemMemory::new(memory);
-
-        let options = FormatVolumeOptions::new();
-        format_volume(&mut StdIoWrapper::from(memory.clone()), options).unwrap();
-
-        let options = FsOptions::new()
-            .time_provider(TimeProvider::new())
-            .update_accessed_date(true);
-
-        let res = FileSystem::new(memory, options).unwrap();
-        SendWrapper::new(res)
-    });
-
     #[test]
     fn test_file_wrapper() {
+        static DIRECTORY: Lazy<SendWrapper<FileSystem>> = Lazy::new(|| {
+            let memory_manager = MemoryManager::init(DefaultMemoryImpl::default());
+
+            let memory = memory_manager.get(MemoryId::new(0));
+
+            let memory = FileSystemMemory::new(memory);
+
+            let options = FormatVolumeOptions::new();
+            format_volume(&mut StdIoWrapper::from(memory.clone()), options).unwrap();
+
+            let options = FsOptions::new()
+                .time_provider(TimeProvider::new())
+                .update_accessed_date(true);
+
+            let res = FileSystem::new(memory, options).unwrap();
+            SendWrapper::new(res)
+        });
         let dir = &DIRECTORY.root_dir();
         {
             let mut file = dir.create_file("test").unwrap();
@@ -347,7 +346,24 @@ mod tests {
 
     #[test]
     fn test_read_write() {
-        let res = CanisterDirectory::new(&DIRECTORY);
+        static DIRECTORY2: Lazy<SendWrapper<FileSystem>> = Lazy::new(|| {
+            let memory_manager = MemoryManager::init(DefaultMemoryImpl::default());
+
+            let memory = memory_manager.get(MemoryId::new(0));
+
+            let memory = FileSystemMemory::new(memory);
+
+            let options = FormatVolumeOptions::new();
+            format_volume(&mut StdIoWrapper::from(memory.clone()), options).unwrap();
+
+            let options = FsOptions::new()
+                .time_provider(TimeProvider::new())
+                .update_accessed_date(true);
+
+            let res = FileSystem::new(memory, options).unwrap();
+            SendWrapper::new(res)
+        });
+        let res = CanisterDirectory::new(&DIRECTORY2);
 
         let path = Path::new("atomic");
         res.atomic_write(path, b"datatadtasdsa").unwrap();

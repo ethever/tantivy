@@ -1017,26 +1017,26 @@ mod tests_icp {
         ReloadPolicy, Term,
     };
 
-    static DIRECTORY: Lazy<SendWrapper<FileSystem>> = Lazy::new(|| {
-        let memory_manager = MemoryManager::init(DefaultMemoryImpl::default());
-
-        let memory = memory_manager.get(MemoryId::new(0));
-
-        let memory = FileSystemMemory::new(memory);
-
-        let options = FormatVolumeOptions::new();
-        format_volume(&mut StdIoWrapper::from(memory.clone()), options).unwrap();
-
-        let options = FsOptions::new()
-            .time_provider(TimeProvider::new())
-            .update_accessed_date(true);
-
-        let res = FileSystem::new(memory, options).unwrap();
-        SendWrapper::new(res)
-    });
-
     #[test]
     fn test_operations_group_icp() {
+        static DIRECTORY: Lazy<SendWrapper<FileSystem>> = Lazy::new(|| {
+            let memory_manager = MemoryManager::init(DefaultMemoryImpl::default());
+
+            let memory = memory_manager.get(MemoryId::new(0));
+
+            let memory = FileSystemMemory::new(memory);
+
+            let options = FormatVolumeOptions::new();
+            format_volume(&mut StdIoWrapper::from(memory.clone()), options).unwrap();
+
+            let options = FsOptions::new()
+                .time_provider(TimeProvider::new())
+                .update_accessed_date(true);
+
+            let res = FileSystem::new(memory, options).unwrap();
+            SendWrapper::new(res)
+        });
+
         {
             // an operations group with 2 items should cause 3 opstamps 0, 1, and 2.
             let mut schema_builder = schema::Schema::builder();
@@ -1060,12 +1060,30 @@ mod tests_icp {
     }
     #[test]
     fn test_canister_directory() {
+        static DIRECTORY: Lazy<SendWrapper<FileSystem>> = Lazy::new(|| {
+            let memory_manager = MemoryManager::init(DefaultMemoryImpl::default());
+
+            let memory = memory_manager.get(MemoryId::new(0));
+
+            let memory = FileSystemMemory::new(memory);
+
+            let options = FormatVolumeOptions::new();
+            format_volume(&mut StdIoWrapper::from(memory.clone()), options).unwrap();
+
+            let options = FsOptions::new()
+                .time_provider(TimeProvider::new())
+                .update_accessed_date(true);
+
+            let res = FileSystem::new(memory, options).unwrap();
+            SendWrapper::new(res)
+        });
+
         let mut schema_builder = schema::Schema::builder();
         let text_field = schema_builder.add_text_field("text", TEXT);
         let body_field = schema_builder.add_text_field("title", TEXT);
         let index = Index::create_in_stable_memory(schema_builder.build(), &DIRECTORY);
 
-        let mut index_writer = index.writer_canister(15_000_000).unwrap();
+        let mut index_writer = index.writer_for_canister(15_000_000).unwrap();
         for _ in 0..1000 {
             index_writer
                 .add_document(doc!(text_field => "hadhsahdsahd",  body_field => "body1"))
@@ -1187,7 +1205,7 @@ mod tests {
                 let title_field = schema.get_field("title").unwrap();
                 let body_field = schema.get_field("body").unwrap();
 
-                let mut index_writer = index.writer_canister(15_000_000).unwrap();
+                let mut index_writer = index.writer_for_canister(15_000_000).unwrap();
                 index_writer.add_document(
                     doc!(title_field => format!("title{}", i), body_field => format!("body{}", i)),
                 ).unwrap();
