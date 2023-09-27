@@ -589,7 +589,7 @@ impl Index {
     #[cfg(feature = "icp")]
     /// TODO: add supporting for canister's stable memory.
     /// The icp system only support one thread per canister.
-    pub fn writer_canister(
+    pub fn writer_for_canister(
         &self,
         overall_memory_arena_in_bytes: usize,
     ) -> crate::Result<IndexWriter> {
