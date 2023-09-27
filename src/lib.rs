@@ -158,8 +158,8 @@ pub mod space_usage;
 pub mod store;
 pub mod termdict;
 
-#[cfg(feature = "icp")]
-mod getrandom;
+// #[cfg(feature = "icp")]
+// mod getrandom;
 
 mod reader;
 
